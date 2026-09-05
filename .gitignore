@@ -1,0 +1,18 @@
+# Maven / Build
+target/
+*.class
+
+# Ambientes & Credenciais Sensíveis
+.env
+*.env.local
+
+# IDEs
+.idea/
+*.iml
+.classpath
+.project
+.settings/
+.vscode/
+
+# Logs
+*.log
