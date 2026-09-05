@@ -44,11 +44,11 @@ public class SyncService {
 
     /**
      * Sincroniza um Item, suas contas e transações buscando o estado mais atualizado da API da Pluggy.
-     * Em caso de erro, registra a falha em SyncLog com cálculo de retentativa por backoff exponencial.
+     * As chamadas HTTP externas são executadas fora de transações ativas para evitar reter conexões JDBC
+     * do pool durante requisições de rede. Cada alteração no banco é persistida via Spring Data Repositories.
      *
      * @param pluggyItemId ID do Item no Pluggy
      */
-    @Transactional
     public void syncItem(String pluggyItemId) {
         log.info("Iniciando sincronização completa para o Item ID: {}", pluggyItemId);
 
