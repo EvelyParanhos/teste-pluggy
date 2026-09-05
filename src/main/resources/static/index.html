@@ -1,0 +1,1063 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Meu Financeiro | Open Finance</title>
+
+    <!-- Bootstrap 5 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- FontAwesome 6 Icons -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <!-- Google Fonts Inter -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <!-- Pluggy Connect SDK -->
+    <script src="https://cdn.pluggy.ai/pluggy-connect/v2.8.2/pluggy-connect.js"></script>
+
+    <style>
+        :root {
+            --bg-main: #f4f6f9;
+            --card-bg: #ffffff;
+            --primary-color: #0d6efd;
+            --secondary-color: #6c757d;
+            --success-color: #198754;
+            --danger-color: #dc3545;
+            --warning-color: #ffc107;
+            --dark-color: #212529;
+            --border-radius: 12px;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-main);
+            color: #333;
+            padding-bottom: 50px;
+        }
+
+        .navbar {
+            background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+
+        .navbar-brand {
+            font-weight: 700;
+            letter-spacing: -0.5px;
+        }
+
+        .stat-card {
+            background-color: var(--card-bg);
+            border-radius: var(--border-radius);
+            border: none;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.04);
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.08);
+        }
+
+        .stat-icon {
+            width: 48px;
+            height: 48px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.25rem;
+        }
+
+        .card-custom {
+            background: var(--card-bg);
+            border-radius: var(--border-radius);
+            border: none;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.04);
+            margin-bottom: 24px;
+        }
+
+        .card-header-custom {
+            background: transparent;
+            border-bottom: 1px solid #f1f5f9;
+            padding: 18px 24px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .account-card {
+            border: 1px solid #e2e8f0;
+            border-radius: var(--border-radius);
+            padding: 16px;
+            background: #fff;
+            transition: all 0.2s ease;
+        }
+
+        .account-card:hover {
+            border-color: var(--primary-color);
+            box-shadow: 0 4px 12px rgba(13, 110, 253, 0.1);
+        }
+
+        .badge-category {
+            font-size: 0.75rem;
+            font-weight: 600;
+            padding: 4px 10px;
+            border-radius: 20px;
+        }
+
+        .amount-credit {
+            color: var(--success-color);
+            font-weight: 600;
+        }
+
+        .amount-debit {
+            color: var(--danger-color);
+            font-weight: 600;
+        }
+
+        .progress-thin {
+            height: 8px;
+            border-radius: 4px;
+        }
+
+        .table-custom tbody tr:hover {
+            background-color: #f8fafc;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Header Navigation -->
+    <nav class="navbar navbar-expand-lg navbar-dark mb-4 py-3">
+        <div class="container">
+            <a class="navbar-brand d-flex align-items-center gap-2" href="#">
+                <i class="fa-solid fa-wallet text-primary fs-3"></i>
+                <span>Meu Financeiro <span class="badge bg-primary fs-6 fw-normal ms-1">Open Finance</span></span>
+            </a>
+            <div class="d-flex align-items-center gap-2">
+                <button class="btn btn-outline-light btn-sm" onclick="openSyncModal()">
+                    <i class="fa-solid fa-rotate me-1"></i> Sincronizar
+                </button>
+                <button class="btn btn-primary btn-sm fw-semibold" onclick="connectPluggy()">
+                    <i class="fa-solid fa-plus me-1"></i> Conectar Banco (Pluggy)
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Container -->
+    <div class="container">
+
+        <!-- Overview Section (Segregação de Contas, Cartões e Investimentos) -->
+        <div class="mb-5">
+            <h3 class="fw-bold mb-1">Overview</h3>
+            <p class="text-muted mb-4">Visão geral dos seus dados financeiros.</p>
+
+            <div class="row g-4">
+                <!-- CONTAS BANCÁRIAS -->
+                <div class="col-lg-4">
+                    <div class="card-custom p-4 h-100 shadow-sm border">
+                        <div class="d-flex align-items-center gap-2 mb-3 text-danger">
+                            <i class="fa-solid fa-landmark fs-5"></i>
+                            <span class="fw-bold small text-uppercase text-secondary" style="letter-spacing: 0.5px;">CONTAS BANCÁRIAS</span>
+                        </div>
+                        <h2 class="fw-bold text-dark mb-4" id="overview-bank-total">R$ 0,00</h2>
+                        
+                        <div id="overview-bank-list" class="d-flex flex-column gap-3">
+                            <div class="text-muted small">Carregando contas bancárias...</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- CARTÕES DE CRÉDITO -->
+                <div class="col-lg-4">
+                    <div class="card-custom p-4 h-100 shadow-sm border">
+                        <div class="d-flex align-items-center gap-2 mb-3 text-danger">
+                            <i class="fa-regular fa-credit-card fs-5"></i>
+                            <span class="fw-bold small text-uppercase text-secondary" style="letter-spacing: 0.5px;">CARTÕES DE CRÉDITO</span>
+                        </div>
+                        <h2 class="fw-bold text-danger mb-2" id="overview-credit-total">R$ 0,00</h2>
+                        
+                        <div class="mb-4">
+                            <div class="d-flex justify-content-between small text-muted mb-1">
+                                <span id="overview-credit-pct">0% utilizado</span>
+                                <span id="overview-credit-limit">Limite: R$ 0,00</span>
+                            </div>
+                            <div class="progress progress-thin bg-light">
+                                <div class="progress-bar bg-danger" id="overview-credit-bar" style="width: 0%"></div>
+                            </div>
+                        </div>
+
+                        <div id="overview-credit-list" class="d-flex flex-column gap-3">
+                            <div class="text-muted small">Carregando cartões de crédito...</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- INVESTIMENTOS -->
+                <div class="col-lg-4">
+                    <div class="card-custom p-4 h-100 shadow-sm border">
+                        <div class="d-flex align-items-center justify-content-between mb-3">
+                            <div class="d-flex align-items-center gap-2 text-danger">
+                                <i class="fa-solid fa-chart-line fs-5"></i>
+                                <span class="fw-bold small text-uppercase text-secondary" style="letter-spacing: 0.5px;">INVESTIMENTOS</span>
+                            </div>
+                            <span class="badge bg-danger-subtle text-danger fs-8">Classes</span>
+                        </div>
+                        <h2 class="fw-bold text-success mb-1" id="overview-investment-total">R$ 0,00</h2>
+                        <div class="small text-muted mb-4" id="overview-investment-subtitle">0 classes de ativos</div>
+
+                        <div id="overview-investment-list" class="d-flex flex-column gap-3">
+                            <div class="text-muted small">Nenhum investimento registrado.</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Top Summary Cards -->
+        <div class="row g-3 mb-4">
+            <div class="col-md-3">
+                <div class="stat-card p-3">
+                    <div class="d-flex align-items-center justify-content-between">
+                        <div>
+                            <span class="text-muted small fw-medium text-uppercase">Saldo em Conta</span>
+                            <h3 class="fw-bold mb-0 mt-1 text-primary" id="stat-total-balance">R$ 0,00</h3>
+                        </div>
+                        <div class="stat-icon bg-primary bg-opacity-10 text-primary">
+                            <i class="fa-solid fa-building-columns"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stat-card p-3">
+                    <div class="d-flex align-items-center justify-content-between">
+                        <div>
+                            <span class="text-muted small fw-medium text-uppercase">Fatura dos Cartões</span>
+                            <h3 class="fw-bold text-danger mb-0 mt-1" id="stat-credit-balance">R$ 0,00</h3>
+                        </div>
+                        <div class="stat-icon bg-danger bg-opacity-10 text-danger">
+                            <i class="fa-regular fa-credit-card"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stat-card p-3">
+                    <div class="d-flex align-items-center justify-content-between">
+                        <div>
+                            <span class="text-muted small fw-medium text-uppercase">Despesas no Mês</span>
+                            <h3 class="fw-bold text-danger mb-0 mt-1" id="stat-month-expenses">R$ 0,00</h3>
+                        </div>
+                        <div class="stat-icon bg-danger bg-opacity-10 text-danger">
+                            <i class="fa-solid fa-arrow-up-right"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stat-card p-3">
+                    <div class="d-flex align-items-center justify-content-between">
+                        <div>
+                            <span class="text-muted small fw-medium text-uppercase">Patrimônio Líquido</span>
+                            <h3 class="fw-bold text-success mb-0 mt-1" id="stat-net-worth">R$ 0,00</h3>
+                        </div>
+                        <div class="stat-icon bg-success bg-opacity-10 text-success">
+                            <i class="fa-solid fa-scale-balanced"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Charts Row -->
+        <div class="row mb-4">
+            <!-- Doughnut Chart: Expenses by Category -->
+            <div class="col-lg-5">
+                <div class="card-custom h-100">
+                    <div class="card-header-custom">
+                        <span class="fs-6 fw-bold"><i class="fa-solid fa-chart-pie me-2 text-primary"></i>Despesas por Categoria</span>
+                        <span class="badge bg-light text-dark fw-normal" id="current-month-badge">Mês Atual</span>
+                    </div>
+                    <div class="card-body d-flex align-items-center justify-content-center p-4">
+                        <div style="width: 100%; max-width: 320px; height: 260px;">
+                            <canvas id="categoryExpenseChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Bar Chart: Monthly History -->
+            <div class="col-lg-7">
+                <div class="card-custom h-100">
+                    <div class="card-header-custom">
+                        <span class="fs-6 fw-bold"><i class="fa-solid fa-chart-column me-2 text-primary"></i>Histórico Mensal (Receitas vs Despesas)</span>
+                        <span class="badge bg-light text-dark fw-normal">Últimos 6 meses</span>
+                    </div>
+                    <div class="card-body p-4" style="height: 280px;">
+                        <canvas id="monthlyHistoryChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Accounts & Cards Section -->
+        <div class="card-custom mb-4">
+            <div class="card-header-custom">
+                <span class="fs-6 fw-bold"><i class="fa-solid fa-credit-card me-2 text-primary"></i>Contas e Cartões Conectados</span>
+                <span class="badge bg-primary-subtle text-primary fw-semibold" id="accounts-count-badge">0 Contas</span>
+            </div>
+            <div class="card-body p-4">
+                <div class="row g-3" id="accounts-container">
+                    <div class="col-12 text-center text-muted py-3">Carregando contas...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Budgets & Alerts Row -->
+        <div class="row mb-4">
+            <!-- Category Budgets Progress -->
+            <div class="col-lg-7">
+                <div class="card-custom h-100">
+                    <div class="card-header-custom">
+                        <span class="fs-6 fw-bold"><i class="fa-solid fa-bullseye me-2 text-primary"></i>Limites de Orçamento do Mês</span>
+                        <button class="btn btn-sm btn-outline-primary" onclick="openBudgetModal()">
+                            <i class="fa-solid fa-plus me-1"></i> Definir Limite
+                        </button>
+                    </div>
+                    <div class="card-body p-4" id="budgets-container">
+                        <div class="text-center text-muted py-3">Carregando orçamentos...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Budget Alerts Log -->
+            <div class="col-lg-5">
+                <div class="card-custom h-100">
+                    <div class="card-header-custom">
+                        <span class="fs-6 fw-bold"><i class="fa-solid fa-triangle-exclamation me-2 text-warning"></i>Alertas de Orçamento Recentes</span>
+                        <span class="badge bg-warning-subtle text-dark fw-semibold" id="alerts-count-badge">0 Alertas</span>
+                    </div>
+                    <div class="card-body p-4" id="alerts-container" style="max-height: 320px; overflow-y: auto;">
+                        <div class="text-center text-muted py-3">Nenhum alerta registrado neste mês.</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Transactions Section -->
+        <div class="card-custom mb-4">
+            <div class="card-header-custom flex-wrap gap-2">
+                <span class="fs-6 fw-bold"><i class="fa-solid fa-list-check me-2 text-primary"></i>Extrato de Transações</span>
+                <div class="d-flex align-items-center gap-2 ms-auto">
+                    <input type="text" class="form-control form-control-sm" id="search-transaction" placeholder="Buscar transação..." oninput="filterTransactions()">
+                    <select class="form-select form-select-sm" id="filter-type" onchange="filterTransactions()" style="width: 140px;">
+                        <option value="ALL">Todos os Tipos</option>
+                        <option value="DEBIT">Débitos</option>
+                        <option value="CREDIT">Créditos</option>
+                    </select>
+                </div>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-custom align-middle mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th class="ps-4">Data</th>
+                                <th>Descrição</th>
+                                <th>Categoria Pluggy</th>
+                                <th>Categoria Interna</th>
+                                <th>Tipo</th>
+                                <th class="text-end pe-4">Valor</th>
+                            </tr>
+                        </thead>
+                        <tbody id="transactions-tbody">
+                            <tr>
+                                <td colspan="6" class="text-center text-muted py-4">Carregando transações...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Modal: Sincronização Manual -->
+    <div class="modal fade" id="syncModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title fw-bold"><i class="fa-solid fa-rotate me-2 text-primary"></i>Sincronizar Conexão Pluggy</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-muted small">Dispare a sincronização sob demanda para buscar extratos e contas atualizadas da API Pluggy.</p>
+                    <div class="mb-3">
+                        <label for="sync-item-id" class="form-label fw-semibold">ID do Item Pluggy</label>
+                        <select class="form-select mb-2" id="sync-item-id">
+                            <option value="">Selecione um Item salvo no banco...</option>
+                        </select>
+                        <input type="text" class="form-control form-control-sm" id="sync-item-id-input" placeholder="Ou digite o ID do Item (ex: c7455564-cdb4-4b0d-8fe4-37223a2a1aa7)">
+                    </div>
+                    <div id="sync-result" class="d-none alert mt-3"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-light" data-bs-dismiss="modal">Fechar</button>
+                    <button type="button" class="btn btn-primary" onclick="triggerManualSync()">
+                        <i class="fa-solid fa-play me-1"></i> Iniciar Sincronização
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Cadastrar Limite de Orçamento -->
+    <div class="modal fade" id="budgetModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title fw-bold"><i class="fa-solid fa-bullseye me-2 text-primary"></i>Definir Limite de Orçamento</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="budget-form">
+                        <div class="mb-3">
+                            <label for="budget-category" class="form-label fw-semibold">Categoria Interna</label>
+                            <select class="form-select" id="budget-category" required>
+                                <option value="ALIMENTACAO">Alimentação e Restaurantes</option>
+                                <option value="MORADIA">Moradia e Contas Domésticas</option>
+                                <option value="TRANSPORTE">Transporte e Combustível</option>
+                                <option value="LAZER">Lazer e Entretenimento</option>
+                                <option value="SAUDE">Saúde e Cuidados Pessoais</option>
+                                <option value="EDUCACAO">Educação</option>
+                                <option value="COMPRAS">Compras e Vestuário</option>
+                                <option value="SERVICOS">Serviços e Assinaturas</option>
+                                <option value="IMPOSTOS">Impostos e Taxas</option>
+                                <option value="OUTROS">Outros / Não Categorizado</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label for="budget-limit" class="form-label fw-semibold">Limite Mensal (R$)</label>
+                            <input type="number" step="0.01" min="1" class="form-control" id="budget-limit" placeholder="Ex: 1000.00" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="budget-threshold" class="form-label fw-semibold">Gatilho de Alerta (%)</label>
+                            <input type="number" step="1" min="1" max="100" class="form-control" id="budget-threshold" value="80" required>
+                            <div class="form-text">Alertar quando os gastos atingirem esse percentual do limite.</div>
+                        </div>
+                    </form>
+                    <div id="budget-result" class="d-none alert mt-3"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="button" class="btn btn-primary" onclick="saveBudgetLimit()">Salvar Limite</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap JS Bundle -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+
+    <script>
+        // Data Global State
+        let allTransactions = [];
+        let categoryChart = null;
+        let historyChart = null;
+
+        // Initialize App on Load
+        document.addEventListener('DOMContentLoaded', () => {
+            loadDashboardSummary();
+            loadAccountOverview();
+            loadCategoryExpenses();
+            loadMonthlyHistory();
+            loadAccounts();
+            loadTransactions();
+            loadBudgetsStatus();
+            loadAlerts();
+            loadItemsForSync();
+        });
+
+        // Helper: Format Currency
+        function formatBRL(amount) {
+            if (amount === null || amount === undefined) return 'R$ 0,00';
+            return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(amount);
+        }
+
+        // Helper: Format Date
+        function formatDate(dateStr) {
+            if (!dateStr) return '-';
+            const date = new Date(dateStr);
+            return date.toLocaleDateString('pt-BR');
+        }
+
+        // 1. Load Dashboard Summary Cards
+        async function loadDashboardSummary() {
+            try {
+                const res = await fetch('/api/v1/dashboard/summary');
+                const data = await res.json();
+
+                document.getElementById('stat-total-balance').textContent = formatBRL(data.totalBankBalance || data.totalConsolidatedBalance);
+                document.getElementById('stat-credit-balance').textContent = formatBRL(data.totalCreditCardBalance);
+                document.getElementById('stat-month-expenses').textContent = formatBRL(data.totalExpensesCurrentMonth);
+
+                const netWorthEl = document.getElementById('stat-net-worth');
+                netWorthEl.textContent = formatBRL(data.netWorth);
+                if (data.netWorth >= 0) {
+                    netWorthEl.className = 'fw-bold text-success mb-0 mt-1';
+                } else {
+                    netWorthEl.className = 'fw-bold text-danger mb-0 mt-1';
+                }
+            } catch (err) {
+                console.error('Erro ao carregar resumo do dashboard:', err);
+            }
+        }
+
+        // 1.1 Load Overview Cards (Contas Bancárias, Cartões e Investimentos)
+        async function loadAccountOverview() {
+            try {
+                const res = await fetch('/api/v1/dashboard/account-overview');
+                const data = await res.json();
+
+                // Contas Bancárias
+                const bankGrp = data.bankAccountsGroup;
+                document.getElementById('overview-bank-total').textContent = formatBRL(bankGrp.totalBalance);
+                const bankListEl = document.getElementById('overview-bank-list');
+
+                if (!bankGrp.items || bankGrp.items.length === 0) {
+                    bankListEl.innerHTML = '<div class="text-muted small">Nenhuma conta bancária conectada.</div>';
+                } else {
+                    bankListEl.innerHTML = bankGrp.items.map(acc => `
+                        <div class="d-flex align-items-center justify-content-between">
+                            <div class="d-flex align-items-center gap-2">
+                                <div class="bg-light rounded-circle p-2 text-primary d-flex align-items-center justify-content-center" style="width:34px; height:34px;">
+                                    <i class="fa-solid fa-building-columns"></i>
+                                </div>
+                                <div>
+                                    <strong class="d-block text-dark small">${acc.institutionName || acc.name}</strong>
+                                    <span class="text-muted fs-8">1 conta · ${acc.percentageShare}%</span>
+                                </div>
+                            </div>
+                            <span class="fw-bold text-success small">${formatBRL(acc.balance)}</span>
+                        </div>
+                    `).join('');
+                }
+
+                // Cartões de Crédito
+                const creditGrp = data.creditCardsGroup;
+                document.getElementById('overview-credit-total').textContent = formatBRL(creditGrp.totalSpent);
+                document.getElementById('overview-credit-pct').textContent = `${creditGrp.utilizationPercentage}% utilizado`;
+                document.getElementById('overview-credit-limit').textContent = `Limite: ${formatBRL(creditGrp.totalLimit)}`;
+                const pctBar = Math.min(creditGrp.utilizationPercentage, 100);
+                document.getElementById('overview-credit-bar').style.width = `${pctBar}%`;
+
+                const creditListEl = document.getElementById('overview-credit-list');
+                if (!creditGrp.items || creditGrp.items.length === 0) {
+                    creditListEl.innerHTML = '<div class="text-muted small">Nenhum cartão de crédito cadastrado.</div>';
+                } else {
+                    creditListEl.innerHTML = creditGrp.items.map(card => `
+                        <div class="d-flex align-items-center justify-content-between">
+                            <div class="d-flex align-items-center gap-2">
+                                <div class="bg-light rounded-3 p-2 text-secondary d-flex align-items-center justify-content-center" style="width:34px; height:34px;">
+                                    <i class="fa-regular fa-credit-card"></i>
+                                </div>
+                                <div>
+                                    <strong class="d-block text-dark small">${card.name}</strong>
+                                    <span class="text-muted fs-8">${card.maskedNumber}</span>
+                                </div>
+                            </div>
+                            <span class="fw-bold text-danger small">${formatBRL(card.balance)}</span>
+                        </div>
+                    `).join('');
+                }
+
+                // Investimentos
+                const invGrp = data.investmentsGroup;
+                document.getElementById('overview-investment-total').textContent = formatBRL(invGrp.totalBalance);
+                document.getElementById('overview-investment-subtitle').textContent = `${invGrp.items ? invGrp.items.length : 0} classes · ativos`;
+
+                const invListEl = document.getElementById('overview-investment-list');
+                if (!invGrp.items || invGrp.items.length === 0) {
+                    invListEl.innerHTML = '<div class="text-muted small">Nenhum investimento registrado.</div>';
+                } else {
+                    invListEl.innerHTML = invGrp.items.map(inv => `
+                        <div>
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <span class="text-dark small fw-semibold">${inv.assetClass} (${inv.percentageShare}%)</span>
+                                <span class="fw-bold text-success small">${formatBRL(inv.balance)}</span>
+                            </div>
+                            <div class="progress progress-thin">
+                                <div class="progress-bar bg-danger" style="width: ${inv.percentageShare}%"></div>
+                            </div>
+                        </div>
+                    `).join('');
+                }
+
+            } catch (err) {
+                console.error('Erro ao carregar overview segregado:', err);
+            }
+        }
+
+        // 2. Load Doughnut Chart: Expenses by Category
+        async function loadCategoryExpenses() {
+            try {
+                const res = await fetch('/api/v1/dashboard/expenses-by-category');
+                const data = await res.json();
+
+                const ctx = document.getElementById('categoryExpenseChart').getContext('2d');
+                if (categoryChart) categoryChart.destroy();
+
+                if (!data || data.length === 0) {
+                    ctx.clearRect(0, 0, 300, 260);
+                    ctx.font = '14px Inter';
+                    ctx.fillStyle = '#6c757d';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('Nenhuma despesa no mês', 160, 130);
+                    return;
+                }
+
+                const labels = data.map(item => item.categoryDescription);
+                const values = data.map(item => item.totalExpenses);
+                const colors = [
+                    '#0d6efd', '#6f42c1', '#d63384', '#fd7e14', '#ffc107',
+                    '#198754', '#20c997', '#0dcaf0', '#6c757d', '#212529'
+                ];
+
+                categoryChart = new Chart(ctx, {
+                    type: 'doughnut',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            data: values,
+                            backgroundColor: colors.slice(0, data.length),
+                            borderWidth: 2,
+                            borderColor: '#ffffff'
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { position: 'bottom', labels: { boxWidth: 12, font: { family: 'Inter', size: 11 } } },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        return ` ${context.label}: ${formatBRL(context.raw)}`;
+                                    }
+                                }
+                            }
+                        },
+                        cutout: '70%'
+                    }
+                });
+            } catch (err) {
+                console.error('Erro ao carregar despesas por categoria:', err);
+            }
+        }
+
+        // 3. Load Bar Chart: Monthly History
+        async function loadMonthlyHistory() {
+            try {
+                const res = await fetch('/api/v1/dashboard/monthly-history?monthsCount=6');
+                const data = await res.json();
+
+                const ctx = document.getElementById('monthlyHistoryChart').getContext('2d');
+                if (historyChart) historyChart.destroy();
+
+                const labels = data.map(item => item.yearMonth);
+                const incomes = data.map(item => item.totalIncome);
+                const expenses = data.map(item => item.totalExpenses);
+
+                historyChart = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: labels,
+                        datasets: [
+                            {
+                                label: 'Receitas',
+                                data: incomes,
+                                backgroundColor: '#198754',
+                                borderRadius: 6
+                            },
+                            {
+                                label: 'Despesas',
+                                data: expenses,
+                                backgroundColor: '#dc3545',
+                                borderRadius: 6
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            x: { grid: { display: false } },
+                            y: {
+                                ticks: {
+                                    callback: function(value) { return 'R$ ' + value; }
+                                }
+                            }
+                        },
+                        plugins: {
+                            legend: { position: 'top', labels: { font: { family: 'Inter' } } },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        return ` ${context.dataset.label}: ${formatBRL(context.raw)}`;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            } catch (err) {
+                console.error('Erro ao carregar histórico mensal:', err);
+            }
+        }
+
+        // 4. Load Accounts
+        async function loadAccounts() {
+            try {
+                const res = await fetch('/api/v1/accounts');
+                const accounts = await res.json();
+
+                const container = document.getElementById('accounts-container');
+                document.getElementById('accounts-count-badge').textContent = `${accounts.length} Contas`;
+
+                if (accounts.length === 0) {
+                    container.innerHTML = `
+                        <div class="col-12 text-center text-muted py-4">
+                            <i class="fa-solid fa-link-slash fs-2 mb-2 d-block text-secondary"></i>
+                            Nenhuma conta financeira conectada ainda.<br>
+                            Clique no botão <strong>Conectar Banco (Pluggy)</strong> acima para vincular sua conta.
+                        </div>`;
+                    return;
+                }
+
+                container.innerHTML = accounts.map(acc => `
+                    <div class="col-md-4">
+                        <div class="account-card">
+                            <div class="d-flex align-items-center justify-content-between mb-2">
+                                <span class="badge bg-secondary-subtle text-dark fw-semibold">${acc.subtype || acc.type || 'CONTA'}</span>
+                                <span class="small text-muted">${acc.number ? 'Nº ' + acc.number : ''}</span>
+                            </div>
+                            <h6 class="fw-bold mb-1">${acc.name || 'Conta Bancária'}</h6>
+                            <div class="fs-5 fw-bold text-dark mt-2">${formatBRL(acc.balance)}</div>
+                            <div class="small text-muted mt-1">Moeda: ${acc.currencyCode || 'BRL'}</div>
+                        </div>
+                    </div>
+                `).join('');
+            } catch (err) {
+                console.error('Erro ao carregar contas:', err);
+            }
+        }
+
+        // 5. Load Transactions
+        async function loadTransactions() {
+            try {
+                const res = await fetch('/api/v1/transactions');
+                allTransactions = await res.json();
+                renderTransactions(allTransactions);
+            } catch (err) {
+                console.error('Erro ao carregar transações:', err);
+            }
+        }
+
+        function renderTransactions(list) {
+            const tbody = document.getElementById('transactions-tbody');
+            if (!list || list.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="6" class="text-center text-muted py-4">Nenhuma transação encontrada.</td></tr>`;
+                return;
+            }
+
+            tbody.innerHTML = list.map(tx => {
+                const isDebit = tx.type === 'DEBIT';
+                const typeBadge = isDebit 
+                    ? '<span class="badge bg-danger-subtle text-danger">DÉBITO</span>' 
+                    : '<span class="badge bg-success-subtle text-success">CRÉDITO</span>';
+                const amountClass = isDebit ? 'amount-debit' : 'amount-credit';
+                const amountPrefix = isDebit ? '-' : '+';
+
+                const internalCatDesc = tx.internalCategory ? tx.internalCategory : 'OUTROS';
+
+                return `
+                    <tr>
+                        <td class="ps-4 fw-medium text-secondary">${formatDate(tx.date)}</td>
+                        <td class="fw-semibold">${tx.description || '-'}</td>
+                        <td><span class="badge bg-light text-dark border">${tx.rawCategory || 'Geral'}</span></td>
+                        <td><span class="badge badge-category bg-primary-subtle text-primary">${internalCatDesc}</span></td>
+                        <td>${typeBadge}</td>
+                        <td class="text-end pe-4 ${amountClass}">${amountPrefix} ${formatBRL(tx.amount)}</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        function filterTransactions() {
+            const search = document.getElementById('search-transaction').value.toLowerCase();
+            const typeFilter = document.getElementById('filter-type').value;
+
+            const filtered = allTransactions.filter(tx => {
+                const matchesSearch = (tx.description && tx.description.toLowerCase().includes(search)) ||
+                                      (tx.rawCategory && tx.rawCategory.toLowerCase().includes(search));
+                const matchesType = typeFilter === 'ALL' || tx.type === typeFilter;
+                return matchesSearch && matchesType;
+            });
+
+            renderTransactions(filtered);
+        }
+
+        // 6. Load Budgets & Progress
+        async function loadBudgetsStatus() {
+            try {
+                const res = await fetch('/api/v1/budgets');
+                const budgets = await res.json();
+
+                const container = document.getElementById('budgets-container');
+                if (!budgets || budgets.length === 0) {
+                    container.innerHTML = `<div class="text-center text-muted py-3">Nenhum orçamento cadastrado. Clique em "Definir Limite".</div>`;
+                    return;
+                }
+
+                container.innerHTML = budgets.map(b => {
+                    let progressClass = 'bg-success';
+                    let badgeStatus = '<span class="badge bg-success-subtle text-success">NORMAL</span>';
+
+                    if (b.status === 'WARN') {
+                        progressClass = 'bg-warning';
+                        badgeStatus = '<span class="badge bg-warning-subtle text-dark">ALERTA (>80%)</span>';
+                    } else if (b.status === 'EXCEEDED') {
+                        progressClass = 'bg-danger';
+                        badgeStatus = '<span class="badge bg-danger-subtle text-danger">ESTOURADO</span>';
+                    }
+
+                    const pct = Math.min(b.percentageUsed, 100);
+
+                    return `
+                        <div class="mb-3 pb-3 border-bottom last-border-0">
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <div>
+                                    <strong class="text-dark">${b.categoryDescription}</strong>
+                                    ${badgeStatus}
+                                </div>
+                                <div class="small fw-semibold text-secondary">
+                                    ${formatBRL(b.currentSpent)} / <span class="text-dark">${formatBRL(b.monthlyLimit)}</span>
+                                </div>
+                            </div>
+                            <div class="progress progress-thin">
+                                <div class="progress-bar ${progressClass}" role="progressbar" style="width: ${pct}%"></div>
+                            </div>
+                            <div class="d-flex justify-content-between mt-1 fs-7 text-muted">
+                                <span>Utilizado: ${b.percentageUsed}%</span>
+                                <span>Limite: ${formatBRL(b.monthlyLimit)}</span>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            } catch (err) {
+                console.error('Erro ao carregar orçamentos:', err);
+            }
+        }
+
+        // 7. Load Budget Alerts
+        async function loadAlerts() {
+            try {
+                const res = await fetch('/api/v1/budgets/alerts');
+                const alerts = await res.json();
+
+                const container = document.getElementById('alerts-container');
+                document.getElementById('alerts-count-badge').textContent = `${alerts.length} Alertas`;
+
+                if (!alerts || alerts.length === 0) {
+                    container.innerHTML = `<div class="text-center text-muted py-3"><i class="fa-regular fa-circle-check text-success fs-3 d-block mb-1"></i>Nenhum limite estourado no mês!</div>`;
+                    return;
+                }
+
+                container.innerHTML = alerts.map(alt => `
+                    <div class="alert alert-warning border-0 shadow-sm d-flex align-items-start gap-2 mb-2 p-3">
+                        <i class="fa-solid fa-triangle-exclamation text-warning mt-1"></i>
+                        <div>
+                            <strong class="d-block text-dark">${alt.category} - Limite Ultrapassado</strong>
+                            <span class="small text-muted">Gasto acumulado: <strong>${formatBRL(alt.currentSpent)}</strong> (Limite: ${formatBRL(alt.monthlyLimit)})</span>
+                        </div>
+                    </div>
+                `).join('');
+            } catch (err) {
+                console.error('Erro ao carregar alertas:', err);
+            }
+        }
+
+        // 8. Open Pluggy Connect Widget
+        async function connectPluggy() {
+            try {
+                const res = await fetch('/api/v1/pluggy/connect-token', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({})
+                });
+                if (!res.ok) {
+                    const errText = await res.text();
+                    throw new Error(`Status ${res.status}: ${errText}`);
+                }
+                const data = await res.json();
+
+                if (!data.accessToken) {
+                    alert('Token de acesso não retornado pelo servidor.');
+                    return;
+                }
+
+                if (typeof PluggyConnect === 'undefined') {
+                    alert('O SDK do Pluggy Connect ainda não foi carregado. Verifique a conexão com a internet.');
+                    return;
+                }
+
+                const pluggyConnect = new PluggyConnect({
+                    connectToken: data.accessToken,
+                    includeSandbox: true,
+                    onSuccess: (itemData) => {
+                        console.log('Sucesso na conexão Pluggy:', itemData);
+                        alert(`Conexão realizada com sucesso! Item ID: ${itemData.item.id}`);
+                        fetch(`/api/v1/sync/${itemData.item.id}`, { method: 'POST' })
+                            .then(() => setTimeout(refreshAllData, 2000));
+                    },
+                    onError: (error) => {
+                        console.error('Erro no Pluggy Connect:', error);
+                        alert('Erro no widget Pluggy Connect: ' + (error.message || JSON.stringify(error)));
+                    },
+                    onClose: () => {
+                        console.log('Pluggy Connect fechado.');
+                        refreshAllData();
+                    }
+                });
+
+                pluggyConnect.init();
+            } catch (err) {
+                console.error('Erro ao conectar Pluggy:', err);
+                alert('Erro ao comunicar com o backend: ' + err.message);
+            }
+        }
+
+        // 9. Manual Sync Functions
+        async function loadItemsForSync() {
+            try {
+                const res = await fetch('/api/v1/items');
+                const items = await res.json();
+
+                const select = document.getElementById('sync-item-id');
+                select.innerHTML = '<option value="">Selecione um Item salvo...</option>';
+                items.forEach(item => {
+                    select.innerHTML += `<option value="${item.id}">${item.connectorName || 'Item'} (${item.id})</option>`;
+                });
+            } catch (err) {
+                console.error('Erro ao carregar items para sync:', err);
+            }
+        }
+
+        function openSyncModal() {
+            loadItemsForSync();
+            const modal = new bootstrap.Modal(document.getElementById('syncModal'));
+            modal.show();
+        }
+
+        async function triggerManualSync() {
+            const selectVal = document.getElementById('sync-item-id').value;
+            const inputVal = document.getElementById('sync-item-id-input').value.trim();
+            const itemId = selectVal || inputVal;
+            const resultEl = document.getElementById('sync-result');
+
+            if (!itemId) {
+                resultEl.className = 'alert alert-danger mt-3';
+                resultEl.textContent = 'Por favor, selecione ou digite um Item ID.';
+                resultEl.classList.remove('d-none');
+                return;
+            }
+
+            try {
+                resultEl.className = 'alert alert-info mt-3';
+                resultEl.textContent = 'Sincronização acionada! Aguarde...';
+                resultEl.classList.remove('d-none');
+
+                const res = await fetch(`/api/v1/sync/${itemId}`, { method: 'POST' });
+                const data = await res.json();
+
+                resultEl.className = 'alert alert-success mt-3';
+                resultEl.textContent = data.message || 'Sincronização executada com sucesso!';
+
+                setTimeout(() => {
+                    bootstrap.Modal.getInstance(document.getElementById('syncModal')).hide();
+                    refreshAllData();
+                }, 1500);
+            } catch (err) {
+                resultEl.className = 'alert alert-danger mt-3';
+                resultEl.textContent = 'Erro ao disparar sincronização: ' + err.message;
+            }
+        }
+
+        // 10. Budget Modal Functions
+        function openBudgetModal() {
+            const modal = new bootstrap.Modal(document.getElementById('budgetModal'));
+            modal.show();
+        }
+
+        async function saveBudgetLimit() {
+            const category = document.getElementById('budget-category').value;
+            const limit = parseFloat(document.getElementById('budget-limit').value);
+            const threshold = parseFloat(document.getElementById('budget-threshold').value);
+            const resultEl = document.getElementById('budget-result');
+
+            if (!limit || limit <= 0) {
+                resultEl.className = 'alert alert-danger mt-3';
+                resultEl.textContent = 'Informe um valor de limite válido.';
+                resultEl.classList.remove('d-none');
+                return;
+            }
+
+            try {
+                const res = await fetch('/api/v1/budgets', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        category: category,
+                        monthlyLimit: limit,
+                        alertThresholdPercentage: threshold
+                    })
+                });
+
+                if (res.ok) {
+                    resultEl.className = 'alert alert-success mt-3';
+                    resultEl.textContent = 'Limite salvo com sucesso!';
+                    resultEl.classList.remove('d-none');
+
+                    setTimeout(() => {
+                        bootstrap.Modal.getInstance(document.getElementById('budgetModal')).hide();
+                        loadBudgetsStatus();
+                        loadAlerts();
+                    }, 1000);
+                } else {
+                    throw new Error('Falha ao salvar orçamento');
+                }
+            } catch (err) {
+                resultEl.className = 'alert alert-danger mt-3';
+                resultEl.textContent = 'Erro ao salvar limite: ' + err.message;
+                resultEl.classList.remove('d-none');
+            }
+        }
+
+        // Refresh all dashboard data
+        function refreshAllData() {
+            loadDashboardSummary();
+            loadAccountOverview();
+            loadCategoryExpenses();
+            loadMonthlyHistory();
+            loadAccounts();
+            loadTransactions();
+            loadBudgetsStatus();
+            loadAlerts();
+        }
+    </script>
+</body>
+</html>
