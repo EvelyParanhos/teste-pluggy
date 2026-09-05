@@ -24,4 +24,5 @@ public class PluggyAccountResponse {
     private String currencyCode;
     private String number;
     private String agency;
+    private PluggyCreditDataResponse creditData;
 }

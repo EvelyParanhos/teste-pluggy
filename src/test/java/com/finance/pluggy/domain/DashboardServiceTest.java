@@ -6,6 +6,7 @@ import com.finance.pluggy.domain.repository.CategoryBudgetRepository;
 import com.finance.pluggy.domain.repository.ItemRepository;
 import com.finance.pluggy.domain.repository.TransactionRepository;
 import com.finance.pluggy.domain.service.DashboardService;
+import com.finance.pluggy.domain.service.InvoiceService;
 import com.finance.pluggy.infrastructure.rest.dto.AccountGroupSummaryResponse;
 import com.finance.pluggy.infrastructure.rest.dto.CategoryExpenseReportResponse;
 import com.finance.pluggy.infrastructure.rest.dto.DashboardSummaryResponse;
@@ -41,12 +42,16 @@ class DashboardServiceTest {
     @Mock
     private CategoryBudgetRepository categoryBudgetRepository;
 
+    @Mock
+    private InvoiceService invoiceService;
+
     @InjectMocks
     private DashboardService dashboardService;
 
     @Test
     @DisplayName("Deve calcular resumo do Dashboard segregando contas bancárias, cartões e investimentos")
     void shouldCalculateDashboardSummary() {
+        when(invoiceService.getInvoices()).thenReturn(List.of());
         when(accountRepository.sumBankAccountsBalance()).thenReturn(new BigDecimal("5000.00"));
         when(accountRepository.sumCreditCardBalance()).thenReturn(new BigDecimal("1200.00"));
         when(accountRepository.sumInvestmentBalance()).thenReturn(new BigDecimal("10000.00"));
@@ -99,6 +104,7 @@ class DashboardServiceTest {
                 .balance(new BigDecimal("2000.00"))
                 .build();
 
+        when(invoiceService.getInvoices()).thenReturn(List.of());
         when(accountRepository.findAll()).thenReturn(List.of(bankAcc, creditAcc, investAcc));
 
         AccountGroupSummaryResponse overview = dashboardService.getAccountOverview();

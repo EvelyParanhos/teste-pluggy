@@ -23,45 +23,85 @@ public class CategoryResolutionService {
      * @return InternalCategory resolvida
      */
     public InternalCategory resolveCategory(String rawPluggyCategory) {
-        if (rawPluggyCategory == null || rawPluggyCategory.isBlank()) {
+        return resolveCategory(rawPluggyCategory, null);
+    }
+
+    /**
+     * Resolve a categoria bruta fornecida pelo Pluggy e pela descrição para uma InternalCategory.
+     */
+    public InternalCategory resolveCategory(String rawPluggyCategory, String description) {
+        if (rawPluggyCategory != null && !rawPluggyCategory.isBlank()) {
+            Optional<CategoryMapping> mapping = categoryMappingRepository
+                    .findByPluggyCategoryIgnoreCase(rawPluggyCategory.trim());
+
+            if (mapping.isPresent()) {
+                return mapping.get().getInternalCategory();
+            }
+        }
+
+        // Concatena categoria e descrição para aumentar assertividade da inferência por palavra-chave
+        String textToAnalyze = (rawPluggyCategory != null ? rawPluggyCategory : "") + " " + (description != null ? description : "");
+        if (textToAnalyze.isBlank()) {
             return InternalCategory.OUTROS;
         }
 
-        Optional<CategoryMapping> mapping = categoryMappingRepository
-                .findByPluggyCategoryIgnoreCase(rawPluggyCategory.trim());
-
-        if (mapping.isPresent()) {
-            return mapping.get().getInternalCategory();
-        }
-
-        // Tenta uma inferência básica baseada em palavras-chave se o mapeamento exato não estiver cadastrado
-        return fallbackCategoryInference(rawPluggyCategory.trim());
+        return fallbackCategoryInference(textToAnalyze.trim());
     }
 
-    private InternalCategory fallbackCategoryInference(String category) {
-        String lower = category.toLowerCase();
-        if (lower.contains("food") || lower.contains("restauran") || lower.contains("refeicao") || lower.contains("aliment")) {
+    private InternalCategory fallbackCategoryInference(String text) {
+        String lower = text.toLowerCase();
+        
+        // ALIMENTACAO
+        if (lower.contains("food") || lower.contains("restauran") || lower.contains("refeicao") || lower.contains("aliment")
+                || lower.contains("ifood") || lower.contains("mercado") || lower.contains("supermercado") || lower.contains("padaria")
+                || lower.contains("atacad") || lower.contains("hortifruti") || lower.contains("mcdonald") || lower.contains("outback")
+                || lower.contains("carrefour") || lower.contains("acucar") || lower.contains("extra") || lower.contains("dia%")) {
             return InternalCategory.ALIMENTACAO;
         }
-        if (lower.contains("transport") || lower.contains("uber") || lower.contains("combustivel") || lower.contains("gasolina")) {
+
+        // TRANSPORTE
+        if (lower.contains("transport") || lower.contains("uber") || lower.contains("99") || lower.contains("cabify")
+                || lower.contains("combustivel") || lower.contains("gasolina") || lower.contains("etanol") || lower.contains("posto")
+                || lower.contains("shell") || lower.contains("ipiranga") || lower.contains("bilhete") || lower.contains("estac")
+                || lower.contains("pedagio") || lower.contains("azul") || lower.contains("gol") || lower.contains("latam")) {
             return InternalCategory.TRANSPORTE;
         }
-        if (lower.contains("housing") || lower.contains("aluguel") || lower.contains("moradia") || lower.contains("luz") || lower.contains("agua")) {
+
+        // MORADIA
+        if (lower.contains("housing") || lower.contains("aluguel") || lower.contains("moradia") || lower.contains("luz")
+                || lower.contains("agua") || lower.contains("energia") || lower.contains("enel") || lower.contains("sabesp")
+                || lower.contains("condominio") || lower.contains("internet") || lower.contains("claro") || lower.contains("vivo")
+                || lower.contains("tim")) {
             return InternalCategory.MORADIA;
         }
-        if (lower.contains("salary") || lower.contains("salario") || lower.contains("renda")) {
+
+        // SALARIO
+        if (lower.contains("salary") || lower.contains("salario") || lower.contains("renda") || lower.contains("provento")) {
             return InternalCategory.SALARIO;
         }
-        if (lower.contains("transfer") || lower.contains("pix")) {
+
+        // TRANSFERENCIA
+        if (lower.contains("transfer") || lower.contains("pix") || lower.contains("ted") || lower.contains("doc")) {
             return InternalCategory.TRANSFERENCIA;
         }
-        if (lower.contains("health") || lower.contains("saude") || lower.contains("farmacia")) {
+
+        // SAUDE
+        if (lower.contains("health") || lower.contains("saude") || lower.contains("farmacia") || lower.contains("drogaria")
+                || lower.contains("drogasil") || lower.contains("raia") || lower.contains("medico") || lower.contains("hospital")) {
             return InternalCategory.SAUDE;
         }
-        if (lower.contains("invest") || lower.contains("aplica")) {
+
+        // INVESTIMENTO
+        if (lower.contains("invest") || lower.contains("aplica") || lower.contains("sofisa") || lower.contains("nuinvest")
+                || lower.contains("b3") || lower.contains("tesouro") || lower.contains("cdb") || lower.contains("fundo")
+                || lower.contains("rico") || lower.contains("xp")) {
             return InternalCategory.INVESTIMENTO;
         }
-        if (lower.contains("leisure") || lower.contains("lazer") || lower.contains("entret")) {
+
+        // LAZER
+        if (lower.contains("leisure") || lower.contains("lazer") || lower.contains("entret") || lower.contains("cinema")
+                || lower.contains("netflix") || lower.contains("spotify") || lower.contains("steam") || lower.contains("disney")
+                || lower.contains("hbo") || lower.contains("prime")) {
             return InternalCategory.LAZER;
         }
 

@@ -59,6 +59,21 @@ public class Account {
     @Column(name = "currency_code", length = 10)
     private String currencyCode;
 
+    @Column(name = "credit_limit", precision = 19, scale = 4)
+    private BigDecimal creditLimit;
+
+    @Column(name = "available_credit_limit", precision = 19, scale = 4)
+    private BigDecimal availableCreditLimit;
+
+    @Column(name = "balance_close_date")
+    private java.time.LocalDate balanceCloseDate;
+
+    @Column(name = "balance_due_date")
+    private java.time.LocalDate balanceDueDate;
+
+    @Column(name = "minimum_payment_amount", precision = 19, scale = 4)
+    private BigDecimal minimumPaymentAmount;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 

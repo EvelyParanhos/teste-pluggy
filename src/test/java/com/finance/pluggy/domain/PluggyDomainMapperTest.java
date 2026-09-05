@@ -74,7 +74,7 @@ class PluggyDomainMapperTest {
                 .category("Groceries")
                 .build();
 
-        when(categoryResolutionService.resolveCategory("Groceries")).thenReturn(InternalCategory.ALIMENTACAO);
+        when(categoryResolutionService.resolveCategory("Groceries", "Supermercado Carrefour")).thenReturn(InternalCategory.ALIMENTACAO);
 
         Transaction tx = mapper.toTransactionEntity(dto, account, null);
 

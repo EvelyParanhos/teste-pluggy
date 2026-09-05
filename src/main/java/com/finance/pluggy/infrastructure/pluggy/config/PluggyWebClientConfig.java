@@ -13,6 +13,7 @@ public class PluggyWebClientConfig {
     public WebClient pluggyWebClient(PluggyProperties properties, WebClient.Builder webClientBuilder) {
         return webClientBuilder
                 .baseUrl(properties.getBaseUrl())
+                .codecs(configurer -> configurer.defaultCodecs().maxInMemorySize(10 * 1024 * 1024))
                 .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                 .defaultHeader(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON_VALUE)
                 .build();

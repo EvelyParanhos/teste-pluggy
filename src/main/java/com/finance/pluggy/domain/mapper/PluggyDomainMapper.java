@@ -8,6 +8,7 @@ import com.finance.pluggy.infrastructure.pluggy.dto.PluggyTransactionResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -51,6 +52,14 @@ public class PluggyDomainMapper {
         account.setBalance(dto.getBalance());
         account.setCurrencyCode(dto.getCurrencyCode() != null ? dto.getCurrencyCode() : "BRL");
 
+        if (dto.getCreditData() != null) {
+            account.setCreditLimit(dto.getCreditData().getCreditLimit());
+            account.setAvailableCreditLimit(dto.getCreditData().getAvailableCreditLimit());
+            account.setBalanceCloseDate(parseDate(dto.getCreditData().getBalanceCloseDate()));
+            account.setBalanceDueDate(parseDate(dto.getCreditData().getBalanceDueDate()));
+            account.setMinimumPaymentAmount(dto.getCreditData().getMinimumPaymentAmount());
+        }
+
         return account;
     }
 
@@ -64,14 +73,15 @@ public class PluggyDomainMapper {
         transaction.setAccount(account);
         transaction.setDescription(dto.getDescription() != null ? dto.getDescription() : "Transação sem descrição");
         transaction.setRawDescription(dto.getRawDescription());
-        transaction.setAmount(dto.getAmount());
-        transaction.setDate(parseDate(dto.getDate()));
+        transaction.setAmount(dto.getAmount() != null ? dto.getAmount() : BigDecimal.ZERO);
+        LocalDate parsedTxDate = parseDate(dto.getDate());
+        transaction.setDate(parsedTxDate != null ? parsedTxDate : LocalDate.now());
         transaction.setType(parseTransactionType(dto.getType()));
         transaction.setStatus(parseTransactionStatus(dto.getStatus()));
         transaction.setPluggyCategory(dto.getCategory());
 
         // Resolução centralizada da categoria interna
-        InternalCategory internalCategory = categoryResolutionService.resolveCategory(dto.getCategory());
+        InternalCategory internalCategory = categoryResolutionService.resolveCategory(dto.getCategory(), dto.getDescription());
         transaction.setInternalCategory(internalCategory);
 
         return transaction;
@@ -124,15 +134,15 @@ public class PluggyDomainMapper {
 
     private LocalDate parseDate(String dateStr) {
         if (dateStr == null || dateStr.isBlank()) {
-            return LocalDate.now();
+            return null;
         }
         try {
             if (dateStr.length() >= 10) {
                 return LocalDate.parse(dateStr.substring(0, 10), DateTimeFormatter.ISO_LOCAL_DATE);
             }
-            return LocalDate.now();
+            return null;
         } catch (Exception e) {
-            return LocalDate.now();
+            return null;
         }
     }
 }

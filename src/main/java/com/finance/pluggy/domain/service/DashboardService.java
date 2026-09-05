@@ -27,6 +27,7 @@ public class DashboardService {
     private final ItemRepository itemRepository;
     private final TransactionRepository transactionRepository;
     private final CategoryBudgetRepository categoryBudgetRepository;
+    private final InvoiceService invoiceService;
 
     /**
      * Retorna o resumo consolidado do Dashboard segregando liquidez, cartões e investimentos.
@@ -36,8 +37,16 @@ public class DashboardService {
         BigDecimal bankBalance = accountRepository.sumBankAccountsBalance();
         if (bankBalance == null) bankBalance = BigDecimal.ZERO;
 
-        BigDecimal creditBalance = accountRepository.sumCreditCardBalance();
-        if (creditBalance == null) creditBalance = BigDecimal.ZERO;
+        List<InvoiceResponse> invoices = invoiceService.getInvoices();
+        BigDecimal creditBalance;
+        if (invoices != null && !invoices.isEmpty()) {
+            creditBalance = invoices.stream()
+                    .map(inv -> inv.getCurrentBalance() != null ? inv.getCurrentBalance() : BigDecimal.ZERO)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+        } else {
+            creditBalance = accountRepository.sumCreditCardBalance();
+            if (creditBalance == null) creditBalance = BigDecimal.ZERO;
+        }
 
         BigDecimal investmentBalance = accountRepository.sumInvestmentBalance();
         if (investmentBalance == null) investmentBalance = BigDecimal.ZERO;
@@ -78,11 +87,17 @@ public class DashboardService {
     @Transactional(readOnly = true)
     public AccountGroupSummaryResponse getAccountOverview() {
         List<Account> allAccounts = accountRepository.findAll();
+        List<InvoiceResponse> invoices = invoiceService.getInvoices();
+        Map<Long, InvoiceResponse> invoiceMap = new HashMap<>();
+        for (InvoiceResponse inv : invoices) {
+            invoiceMap.put(inv.getAccountId(), inv);
+        }
 
         BigDecimal bankTotal = BigDecimal.ZERO;
         List<AccountGroupSummaryResponse.BankAccountItem> bankItems = new ArrayList<>();
 
         BigDecimal creditTotal = BigDecimal.ZERO;
+        BigDecimal totalLimit = BigDecimal.ZERO;
         List<AccountGroupSummaryResponse.CreditCardItem> creditItems = new ArrayList<>();
 
         BigDecimal investmentTotal = BigDecimal.ZERO;
@@ -92,7 +107,13 @@ public class DashboardService {
             BigDecimal bal = acc.getBalance() != null ? acc.getBalance() : BigDecimal.ZERO;
 
             if (isCreditCard(acc)) {
-                creditTotal = creditTotal.add(bal);
+                InvoiceResponse inv = invoiceMap.get(acc.getId());
+                BigDecimal cardBalance = inv != null && inv.getCurrentBalance() != null ? inv.getCurrentBalance() : bal;
+                BigDecimal cardLimit = inv != null && inv.getCreditLimit() != null ? inv.getCreditLimit() : new BigDecimal("5000.00");
+
+                creditTotal = creditTotal.add(cardBalance);
+                totalLimit = totalLimit.add(cardLimit);
+
                 String maskedNum = acc.getNumber() != null && acc.getNumber().length() >= 4
                         ? "xxxx " + acc.getNumber().substring(acc.getNumber().length() - 4)
                         : "xxxx 0000";
@@ -101,8 +122,8 @@ public class DashboardService {
                         .id(acc.getId())
                         .name(acc.getName() != null ? acc.getName() : "Cartão de Crédito")
                         .maskedNumber(maskedNum)
-                        .balance(bal)
-                        .limit(new BigDecimal("5000.00")) // Limite estimado/sandbox
+                        .balance(cardBalance)
+                        .limit(cardLimit)
                         .build());
             } else if (isInvestment(acc)) {
                 investmentTotal = investmentTotal.add(bal);
@@ -146,11 +167,10 @@ public class DashboardService {
         }
 
         // Calcula uso do limite de crédito
-        BigDecimal estimatedLimit = new BigDecimal("10000.00");
         BigDecimal utilizationPct = BigDecimal.ZERO;
-        if (estimatedLimit.compareTo(BigDecimal.ZERO) > 0) {
+        if (totalLimit.compareTo(BigDecimal.ZERO) > 0) {
             utilizationPct = creditTotal.multiply(new BigDecimal("100"))
-                    .divide(estimatedLimit, 1, RoundingMode.HALF_UP);
+                    .divide(totalLimit, 1, RoundingMode.HALF_UP);
         }
 
         return AccountGroupSummaryResponse.builder()
@@ -160,7 +180,7 @@ public class DashboardService {
                         .build())
                 .creditCardsGroup(AccountGroupSummaryResponse.CreditCardsGroup.builder()
                         .totalSpent(creditTotal)
-                        .totalLimit(estimatedLimit)
+                        .totalLimit(totalLimit)
                         .utilizationPercentage(utilizationPct)
                         .items(creditItems)
                         .build())
