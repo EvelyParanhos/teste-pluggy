@@ -90,6 +90,8 @@ class InvoiceServiceTest {
                 .subtype(AccountSubtype.CREDIT_CARD)
                 .creditLimit(new BigDecimal("5000.00"))
                 .availableCreditLimit(new BigDecimal("3000.00"))
+                .balanceCloseDate(now.minusDays(2))
+                .balanceDueDate(now.plusDays(8))
                 .build();
 
         // Fatura do mês passado presa como OVERDUE (mesmo no passado)

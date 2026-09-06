@@ -54,10 +54,17 @@ public class InvoiceService {
 
                 boolean hasReliableBills = false;
                 if (dbInvoices != null && !dbInvoices.isEmpty()) {
-                    hasReliableBills = dbInvoices.stream().anyMatch(inv -> {
-                        LocalDate refDate = inv.getCloseDate() != null ? inv.getCloseDate() : inv.getDueDate();
-                        return refDate != null && !refDate.isBefore(now.minusDays(60));
-                    });
+                    LocalDate maxBillDate = dbInvoices.stream()
+                            .map(inv -> inv.getCloseDate() != null ? inv.getCloseDate() : inv.getDueDate())
+                            .filter(java.util.Objects::nonNull)
+                            .max(Comparator.naturalOrder())
+                            .orElse(null);
+
+                    LocalDate accRefDate = acc.getBalanceCloseDate() != null ? acc.getBalanceCloseDate() : acc.getBalanceDueDate();
+
+                    hasReliableBills = maxBillDate != null
+                            && accRefDate != null
+                            && Math.abs(java.time.temporal.ChronoUnit.DAYS.between(maxBillDate, accRefDate)) <= 35;
                 }
 
                 if (hasReliableBills) {
