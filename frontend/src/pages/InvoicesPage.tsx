@@ -101,7 +101,11 @@ export const InvoicesPage: React.FC = () => {
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  {isOverdue ? (
+                  {inv.pendingSync ? (
+                    <span className="badge-status badge-warning" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <Clock size={14} /> AGUARDANDO SINCRONIZAÇÃO DE FATURAS
+                    </span>
+                  ) : isOverdue ? (
                     <span className="badge-status badge-critical" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                       <AlertTriangle size={14} /> VENCIDA
                     </span>
@@ -116,6 +120,13 @@ export const InvoicesPage: React.FC = () => {
                   )}
                 </div>
               </div>
+
+              {inv.pendingSync && (
+                <div style={{ fontSize: '0.85rem', color: '#EAB308', backgroundColor: 'rgba(234, 179, 8, 0.08)', padding: '12px 16px', borderRadius: '8px', marginBottom: '20px', border: '1px solid rgba(234, 179, 8, 0.2)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Clock size={16} />
+                  <span>As faturas oficiais deste cartão ainda estão sendo sincronizadas pela Pluggy. Os valores exibidos abaixo são estimativas temporárias.</span>
+                </div>
+              )}
 
               {/* Grid de Informações Financeiras da Fatura */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px', marginBottom: '24px', backgroundColor: '#14101F', padding: '20px', borderRadius: '12px', border: '1px solid #2E2644' }}>

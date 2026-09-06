@@ -147,6 +147,7 @@ export interface Invoice {
   transactionCount: number;
   transactions: Transaction[];
   futureTransactions?: Transaction[];
+  pendingSync?: boolean;
 }
 
 export interface SyncLog {

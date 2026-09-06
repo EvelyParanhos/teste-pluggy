@@ -62,22 +62,46 @@ public class InvoiceService {
                             ? currentInvoice.getTotalAmount()
                             : (currentInvoice.getTotalBalance() != null ? currentInvoice.getTotalBalance() : BigDecimal.ZERO);
 
-                    // Transações itemizadas vinculadas a esta fatura pelo billId ou período de data
+                    // Identifica a data de fechamento da fatura anterior no histórico (se houver) para o intervalo fallback
+                    int currentIndex = dbInvoices.indexOf(currentInvoice);
+                    LocalDate previousInvoiceCloseDate = (currentIndex > 0)
+                            ? dbInvoices.get(currentIndex - 1).getCloseDate()
+                            : null;
+
+                    // Transações itemizadas vinculadas a esta fatura pelo billId (prioritário) ou fallback por intervalo de datas
                     List<Transaction> accountTxs = transactionRepository.findByAccountId(acc.getId());
                     List<Transaction> currentTxs = new ArrayList<>();
                     List<Transaction> futureTxs = new ArrayList<>();
                     BigDecimal futureBalance = BigDecimal.ZERO;
 
                     for (Transaction tx : accountTxs) {
-                        if (currentInvoice.getPluggyBillId() != null && currentInvoice.getPluggyBillId().equals(tx.getPluggyBillId())) {
-                            currentTxs.add(tx);
-                        } else if (currentInvoice.getCloseDate() != null && tx.getDate() != null && tx.getDate().isAfter(currentInvoice.getCloseDate())) {
-                            futureTxs.add(tx);
-                            if (tx.getType() == TransactionType.DEBIT) {
-                                futureBalance = futureBalance.add(tx.getAmount().abs());
+                        String txBillId = tx.getPluggyBillId();
+                        LocalDate txDate = tx.getDate();
+
+                        if (txBillId != null && !txBillId.isBlank()) {
+                            // Match primário por billId oficial
+                            if (txBillId.equals(currentInvoice.getPluggyBillId())) {
+                                currentTxs.add(tx);
+                            } else if (currentInvoice.getCloseDate() != null && txDate != null && txDate.isAfter(currentInvoice.getCloseDate())) {
+                                futureTxs.add(tx);
+                                if (tx.getType() == TransactionType.DEBIT && tx.getAmount() != null) {
+                                    futureBalance = futureBalance.add(tx.getAmount().abs());
+                                }
                             }
                         } else {
-                            currentTxs.add(tx);
+                            // Fallback para transações sem billId (ex: Nubank ou conectores com billId esparso) por intervalo de data
+                            if (currentInvoice.getCloseDate() != null && txDate != null && txDate.isAfter(currentInvoice.getCloseDate())) {
+                                futureTxs.add(tx);
+                                if (tx.getType() == TransactionType.DEBIT && tx.getAmount() != null) {
+                                    futureBalance = futureBalance.add(tx.getAmount().abs());
+                                }
+                            } else if (previousInvoiceCloseDate != null && txDate != null) {
+                                if (txDate.isAfter(previousInvoiceCloseDate)) {
+                                    currentTxs.add(tx);
+                                }
+                            } else {
+                                currentTxs.add(tx);
+                            }
                         }
                     }
 
@@ -107,9 +131,10 @@ public class InvoiceService {
                             .transactionCount(currentTxs.size())
                             .transactions(currentTxs)
                             .futureTransactions(futureTxs)
+                            .pendingSync(false)
                             .build());
                 } else {
-                    // Fallback para contas sem faturas salvas (ex: sincronização em andamento ou testes)
+                    // Fallback para contas sem faturas salvas (ex: logo após conectar, antes do primeiro sync de bills)
                     List<Transaction> accountTxs = transactionRepository.findByAccountId(acc.getId());
 
                     LocalDate closeDate = acc.getBalanceCloseDate() != null
@@ -176,6 +201,7 @@ public class InvoiceService {
                             .transactionCount(currentTxs.size())
                             .transactions(currentTxs)
                             .futureTransactions(futureTxs)
+                            .pendingSync(true)
                             .build());
                 }
             }
