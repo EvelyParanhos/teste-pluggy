@@ -41,6 +41,7 @@ public class DashboardService {
         BigDecimal creditBalance;
         if (invoices != null && !invoices.isEmpty()) {
             creditBalance = invoices.stream()
+                    .filter(InvoiceResponse::isCurrent)
                     .map(inv -> inv.getCurrentBalance() != null ? inv.getCurrentBalance() : BigDecimal.ZERO)
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
         } else {
@@ -89,8 +90,12 @@ public class DashboardService {
         List<Account> allAccounts = accountRepository.findAll();
         List<InvoiceResponse> invoices = invoiceService.getInvoices();
         Map<Long, InvoiceResponse> invoiceMap = new HashMap<>();
-        for (InvoiceResponse inv : invoices) {
-            invoiceMap.put(inv.getAccountId(), inv);
+        if (invoices != null) {
+            for (InvoiceResponse inv : invoices) {
+                if (inv.isCurrent()) {
+                    invoiceMap.put(inv.getAccountId(), inv);
+                }
+            }
         }
 
         BigDecimal bankTotal = BigDecimal.ZERO;

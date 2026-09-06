@@ -148,6 +148,7 @@ export interface Invoice {
   transactions: Transaction[];
   futureTransactions?: Transaction[];
   pendingSync?: boolean;
+  isCurrent?: boolean;
 }
 
 export interface SyncLog {

@@ -135,6 +135,7 @@ public class InvoiceService {
                                 .transactions(invTxs)
                                 .futureTransactions(futureTxs)
                                 .pendingSync(false)
+                                .isCurrent(isCurrent)
                                 .build());
                     }
                 } else {
@@ -206,6 +207,7 @@ public class InvoiceService {
                             .transactions(currentTxs)
                             .futureTransactions(futureTxs)
                             .pendingSync(true)
+                            .isCurrent(true)
                             .build());
                 }
             }

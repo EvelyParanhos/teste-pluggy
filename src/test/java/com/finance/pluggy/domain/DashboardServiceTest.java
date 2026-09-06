@@ -10,6 +10,7 @@ import com.finance.pluggy.domain.service.InvoiceService;
 import com.finance.pluggy.infrastructure.rest.dto.AccountGroupSummaryResponse;
 import com.finance.pluggy.infrastructure.rest.dto.CategoryExpenseReportResponse;
 import com.finance.pluggy.infrastructure.rest.dto.DashboardSummaryResponse;
+import com.finance.pluggy.infrastructure.rest.dto.InvoiceResponse;
 import com.finance.pluggy.infrastructure.rest.dto.MonthlyExpenseReportResponse;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -119,6 +120,53 @@ class DashboardServiceTest {
 
         assertThat(overview.getInvestmentsGroup().getTotalBalance()).isEqualByComparingTo("2000.00");
         assertThat(overview.getInvestmentsGroup().getItems()).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("Deve filtrar apenas faturas atuais (isCurrent = true) ao calcular resumo e overview no Dashboard")
+    void shouldOnlySumCurrentInvoicesInDashboardSummary() {
+        InvoiceResponse pastInvoice = InvoiceResponse.builder()
+                .accountId(2L)
+                .currentBalance(new BigDecimal("500.00"))
+                .isCurrent(false)
+                .status("PAID")
+                .build();
+
+        InvoiceResponse currentInvoice = InvoiceResponse.builder()
+                .accountId(2L)
+                .currentBalance(new BigDecimal("1200.00"))
+                .creditLimit(new BigDecimal("5000.00"))
+                .isCurrent(true)
+                .status("OPEN")
+                .build();
+
+        InvoiceResponse futureInvoice = InvoiceResponse.builder()
+                .accountId(2L)
+                .currentBalance(new BigDecimal("800.00"))
+                .isCurrent(false)
+                .status("OPEN")
+                .build();
+
+        Account creditAcc = Account.builder()
+                .id(2L)
+                .name("Itaú Cartão")
+                .number("7425")
+                .type(AccountType.CREDIT)
+                .subtype(AccountSubtype.CREDIT_CARD)
+                .balance(new BigDecimal("1200.00"))
+                .build();
+
+        when(invoiceService.getInvoices()).thenReturn(List.of(pastInvoice, currentInvoice, futureInvoice));
+        when(accountRepository.sumBankAccountsBalance()).thenReturn(new BigDecimal("5000.00"));
+        when(accountRepository.sumInvestmentBalance()).thenReturn(new BigDecimal("0.00"));
+        when(accountRepository.findAll()).thenReturn(List.of(creditAcc));
+
+        DashboardSummaryResponse summary = dashboardService.getDashboardSummary();
+        AccountGroupSummaryResponse overview = dashboardService.getAccountOverview();
+
+        // Saldo de cartão deve ser exatamente R$ 1200.00 (somente a fatura atual, desconsiderando R$ 500 de passada e R$ 800 de futura)
+        assertThat(summary.getTotalCreditCardBalance()).isEqualByComparingTo("1200.00");
+        assertThat(overview.getCreditCardsGroup().getTotalSpent()).isEqualByComparingTo("1200.00");
     }
 
     @Test

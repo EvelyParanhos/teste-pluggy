@@ -32,4 +32,5 @@ public class InvoiceResponse {
     private List<Transaction> transactions; // Transações do ciclo atual
     private List<Transaction> futureTransactions; // Transações futuras / parcelamentos futuros
     private boolean pendingSync;
+    private boolean isCurrent;
 }
