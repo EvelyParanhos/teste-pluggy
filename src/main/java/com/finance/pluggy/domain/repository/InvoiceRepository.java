@@ -15,4 +15,6 @@ public interface InvoiceRepository extends JpaRepository<Invoice, Long> {
     List<Invoice> findByAccountId(Long accountId);
 
     List<Invoice> findByAccountIdOrderByDueDateDesc(Long accountId);
+
+    List<Invoice> findByAccountIdOrderByDueDateAsc(Long accountId);
 }

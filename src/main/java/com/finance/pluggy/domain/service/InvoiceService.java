@@ -41,7 +41,7 @@ public class InvoiceService {
         for (Account acc : allAccounts) {
             if (isCreditCard(acc)) {
                 List<com.finance.pluggy.domain.model.Invoice> dbInvoices =
-                        invoiceRepository.findByAccountIdOrderByDueDateDesc(acc.getId());
+                        invoiceRepository.findByAccountIdOrderByDueDateAsc(acc.getId());
 
                 String maskedNum = acc.getNumber() != null && acc.getNumber().length() >= 4
                         ? "xxxx " + acc.getNumber().substring(acc.getNumber().length() - 4)
@@ -52,11 +52,11 @@ public class InvoiceService {
                         : new BigDecimal("5000.00");
 
                 if (dbInvoices != null && !dbInvoices.isEmpty()) {
-                    // Seleciona a fatura atual em aberto ou a mais recente
+                    // Seleciona de forma determinística a primeira fatura pendente (status != PAID) em ordem cronológica (dueDate ASC)
                     com.finance.pluggy.domain.model.Invoice currentInvoice = dbInvoices.stream()
-                            .filter(inv -> "OPEN".equalsIgnoreCase(inv.getStatus()) || "OVERDUE".equalsIgnoreCase(inv.getStatus()))
+                            .filter(inv -> !"PAID".equalsIgnoreCase(inv.getStatus()))
                             .findFirst()
-                            .orElse(dbInvoices.get(0));
+                            .orElse(dbInvoices.get(dbInvoices.size() - 1));
 
                     BigDecimal currentBalance = currentInvoice.getTotalAmount() != null
                             ? currentInvoice.getTotalAmount()

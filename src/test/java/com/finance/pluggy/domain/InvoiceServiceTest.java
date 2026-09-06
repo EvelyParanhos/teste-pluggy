@@ -76,4 +76,56 @@ class InvoiceServiceTest {
         assertThat(inv.getUtilizationPercentage()).isEqualByComparingTo("30.0");
         assertThat(inv.getStatus()).isEqualTo("OPEN");
     }
+
+    @Test
+    @DisplayName("Deve selecionar a primeira fatura pendente (status != PAID) em ordem cronológica (dueDate ASC)")
+    void shouldSelectFirstUnpaidInvoiceInAscendingOrder() {
+        Account creditCard = Account.builder()
+                .id(1L)
+                .name("Cartão Itaú Gold")
+                .number("7425")
+                .type(AccountType.CREDIT)
+                .subtype(AccountSubtype.CREDIT_CARD)
+                .creditLimit(new BigDecimal("5000.00"))
+                .availableCreditLimit(new BigDecimal("3000.00"))
+                .build();
+
+        com.finance.pluggy.domain.model.Invoice paidInvoice = com.finance.pluggy.domain.model.Invoice.builder()
+                .id(10L)
+                .pluggyBillId("bill-1")
+                .account(creditCard)
+                .dueDate(LocalDate.of(2026, 8, 10))
+                .totalAmount(new BigDecimal("500.00"))
+                .status("PAID")
+                .build();
+
+        com.finance.pluggy.domain.model.Invoice overdueInvoice = com.finance.pluggy.domain.model.Invoice.builder()
+                .id(11L)
+                .pluggyBillId("bill-2")
+                .account(creditCard)
+                .dueDate(LocalDate.of(2026, 9, 10))
+                .totalAmount(new BigDecimal("1200.00"))
+                .status("OVERDUE")
+                .build();
+
+        com.finance.pluggy.domain.model.Invoice openInvoice = com.finance.pluggy.domain.model.Invoice.builder()
+                .id(12L)
+                .pluggyBillId("bill-3")
+                .account(creditCard)
+                .dueDate(LocalDate.of(2026, 10, 10))
+                .totalAmount(new BigDecimal("800.00"))
+                .status("OPEN")
+                .build();
+
+        when(accountRepository.findAll()).thenReturn(List.of(creditCard));
+        when(invoiceRepository.findByAccountIdOrderByDueDateAsc(1L)).thenReturn(List.of(paidInvoice, overdueInvoice, openInvoice));
+        when(transactionRepository.findByAccountId(1L)).thenReturn(Collections.emptyList());
+
+        List<InvoiceResponse> invoices = invoiceService.getInvoices();
+
+        assertThat(invoices).hasSize(1);
+        InvoiceResponse inv = invoices.get(0);
+        assertThat(inv.getStatus()).isEqualTo("OVERDUE");
+        assertThat(inv.getCurrentBalance()).isEqualByComparingTo("1200.00");
+    }
 }
