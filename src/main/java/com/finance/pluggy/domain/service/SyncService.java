@@ -39,6 +39,7 @@ public class SyncService {
     private final AccountRepository accountRepository;
     private final TransactionRepository transactionRepository;
     private final SyncLogRepository syncLogRepository;
+    private final com.finance.pluggy.domain.repository.InvoiceRepository invoiceRepository;
     private final PluggyDomainMapper pluggyDomainMapper;
     private final ApplicationEventPublisher eventPublisher;
 
@@ -81,7 +82,12 @@ public class SyncService {
                 Account account = accountRepository.save(pluggyDomainMapper.toAccountEntity(accountDto, item, existingAccount));
                 totalAccountsSynced++;
 
-                // 3. Busca e sincroniza as transações para cada conta usando paginação por cursor (v2)
+                // 3. Se for cartão de crédito, busca e sincroniza as faturas (bills) oficiais
+                if (isCreditCard(account)) {
+                    syncBillsForAccount(account);
+                }
+
+                // 4. Busca e sincroniza as transações para cada conta usando paginação por cursor (v2)
                 List<Transaction> accountTransactions = syncTransactionsForAccount(account);
                 allIngestedTransactions.addAll(accountTransactions);
             }
@@ -164,5 +170,28 @@ public class SyncService {
         }
 
         syncLogRepository.save(syncLog);
+    }
+
+    private void syncBillsForAccount(Account account) {
+        try {
+            com.finance.pluggy.infrastructure.pluggy.dto.PluggyPageResponse<com.finance.pluggy.infrastructure.pluggy.dto.PluggyBillResponse> billsPage =
+                    pluggyClient.getBills(account.getPluggyAccountId());
+            if (billsPage != null && billsPage.getResults() != null) {
+                for (com.finance.pluggy.infrastructure.pluggy.dto.PluggyBillResponse billDto : billsPage.getResults()) {
+                    com.finance.pluggy.domain.model.Invoice existingInvoice =
+                            invoiceRepository.findByPluggyBillId(billDto.getId()).orElse(null);
+                    com.finance.pluggy.domain.model.Invoice invoice =
+                            pluggyDomainMapper.toInvoiceEntity(billDto, account, existingInvoice);
+                    invoiceRepository.save(invoice);
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Não foi possível buscar faturas para a conta {}: {}", account.getPluggyAccountId(), e.getMessage());
+        }
+    }
+
+    private boolean isCreditCard(Account acc) {
+        return acc.getType() == com.finance.pluggy.domain.model.AccountType.CREDIT 
+                || acc.getSubtype() == com.finance.pluggy.domain.model.AccountSubtype.CREDIT_CARD;
     }
 }

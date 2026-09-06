@@ -31,6 +31,9 @@ class InvoiceServiceTest {
     @Mock
     private TransactionRepository transactionRepository;
 
+    @Mock
+    private com.finance.pluggy.domain.repository.InvoiceRepository invoiceRepository;
+
     @InjectMocks
     private InvoiceService invoiceService;
 

@@ -17,6 +17,8 @@ import java.util.Optional;
 public interface TransactionRepository extends JpaRepository<Transaction, Long> {
     Optional<Transaction> findByPluggyTransactionId(String pluggyTransactionId);
     List<Transaction> findByAccountId(Long accountId);
+    List<Transaction> findByPluggyBillId(String pluggyBillId);
+    List<Transaction> findByAccountIdAndPluggyBillId(Long accountId, String pluggyBillId);
     List<Transaction> findByInternalCategory(InternalCategory internalCategory);
     List<Transaction> findByDateBetween(LocalDate startDate, LocalDate endDate);
 

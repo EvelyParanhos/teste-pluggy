@@ -7,21 +7,19 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
+import java.util.List;
 
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
 @JsonIgnoreProperties(ignoreUnknown = true)
-public class PluggyTransactionResponse {
+public class PluggyBillResponse {
     private String id;
-    private String accountId;
-    private String description;
-    private String rawDescription;
-    private BigDecimal amount;
-    private String date;
-    private String type;
-    private String status;
-    private String category;
-    private String billId;
+    private String dueDate;
+    private String billClosingDate;
+    private BigDecimal totalAmount;
+    private BigDecimal totalBalance;
+    private BigDecimal minimumPaymentAmount;
+    private List<PluggyBillPaymentResponse> payments;
 }

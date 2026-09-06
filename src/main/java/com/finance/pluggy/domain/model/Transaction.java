@@ -55,6 +55,9 @@ public class Transaction {
     @Column(name = "pluggy_category")
     private String pluggyCategory;
 
+    @Column(name = "pluggy_bill_id")
+    private String pluggyBillId;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "internal_category", nullable = false)
     private InternalCategory internalCategory;

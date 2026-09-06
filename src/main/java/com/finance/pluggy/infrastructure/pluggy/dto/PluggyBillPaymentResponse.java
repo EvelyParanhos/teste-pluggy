@@ -13,15 +13,10 @@ import java.math.BigDecimal;
 @AllArgsConstructor
 @Builder
 @JsonIgnoreProperties(ignoreUnknown = true)
-public class PluggyTransactionResponse {
+public class PluggyBillPaymentResponse {
     private String id;
-    private String accountId;
-    private String description;
-    private String rawDescription;
-    private BigDecimal amount;
     private String date;
-    private String type;
-    private String status;
-    private String category;
-    private String billId;
+    private String paymentDate;
+    private BigDecimal amount;
+    private String paymentMode;
 }

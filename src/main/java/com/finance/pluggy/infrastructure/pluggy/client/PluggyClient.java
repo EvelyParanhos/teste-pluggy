@@ -119,6 +119,23 @@ public class PluggyClient {
     }
 
     /**
+     * Busca faturas (bills) de uma conta de cartão de crédito no Pluggy (/bills).
+     */
+    public PluggyPageResponse<PluggyBillResponse> getBills(String accountId) {
+        return executeWithAuth(apiKey ->
+                pluggyWebClient.get()
+                        .uri(uriBuilder -> uriBuilder
+                                .path("/bills")
+                                .queryParam("accountId", accountId)
+                                .build())
+                        .header(API_KEY_HEADER, apiKey)
+                        .retrieve()
+                        .bodyToMono(new ParameterizedTypeReference<PluggyPageResponse<PluggyBillResponse>>() {})
+                        .block()
+        );
+    }
+
+    /**
      * Executa a chamada à API injetando o cabeçalho X-API-KEY e tratando renovação automática em caso de 401.
      */
     private <R> R executeWithAuth(Function<String, R> apiCall) {

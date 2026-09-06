@@ -49,6 +49,9 @@ class SyncServiceTest {
     private SyncLogRepository syncLogRepository;
 
     @Mock
+    private com.finance.pluggy.domain.repository.InvoiceRepository invoiceRepository;
+
+    @Mock
     private PluggyDomainMapper pluggyDomainMapper;
 
     @Mock
