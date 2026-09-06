@@ -16,6 +16,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 
 import com.finance.pluggy.domain.model.TransactionType;
@@ -52,11 +53,14 @@ public class InvoiceService {
                         : new BigDecimal("5000.00");
 
                 if (dbInvoices != null && !dbInvoices.isEmpty()) {
-                    // Seleciona de forma determinística a fatura atual em aberto/pendente (primeira status != PAID em ordem ASC)
+                    // Seleciona a fatura atual de forma determinística por data (a fatura fechada mais recente: closeDate <= agora)
                     com.finance.pluggy.domain.model.Invoice currentInvoice = dbInvoices.stream()
-                            .filter(inv -> !"PAID".equalsIgnoreCase(inv.getStatus()))
-                            .findFirst()
-                            .orElse(dbInvoices.get(dbInvoices.size() - 1));
+                            .filter(inv -> inv.getCloseDate() != null && !inv.getCloseDate().isAfter(now))
+                            .max(Comparator.comparing(com.finance.pluggy.domain.model.Invoice::getCloseDate))
+                            .orElseGet(() -> dbInvoices.stream()
+                                    .filter(inv -> inv.getDueDate() != null && !inv.getDueDate().isAfter(now))
+                                    .max(Comparator.comparing(com.finance.pluggy.domain.model.Invoice::getDueDate))
+                                    .orElse(dbInvoices.get(0)));
 
                     List<Transaction> accountTxs = transactionRepository.findByAccountId(acc.getId());
 
@@ -69,11 +73,18 @@ public class InvoiceService {
                                 : null;
 
                         boolean isCurrent = inv.getId() != null && inv.getId().equals(currentInvoice.getId());
-                        boolean isFuture = inv.getDueDate() != null && currentInvoice.getDueDate() != null
-                                ? inv.getDueDate().isAfter(currentInvoice.getDueDate())
-                                : (inv.getDueDate() != null && inv.getDueDate().isAfter(now));
+                        boolean isFuture = false;
+                        if (!isCurrent) {
+                            if (inv.getCloseDate() != null && currentInvoice.getCloseDate() != null) {
+                                isFuture = inv.getCloseDate().isAfter(currentInvoice.getCloseDate());
+                            } else if (inv.getDueDate() != null && currentInvoice.getDueDate() != null) {
+                                isFuture = inv.getDueDate().isAfter(currentInvoice.getDueDate());
+                            } else if (inv.getDueDate() != null) {
+                                isFuture = inv.getDueDate().isAfter(now);
+                            }
+                        }
 
-                        // Faturas passadas e já pagas são omitidas da lista exposta no endpoint /invoices
+                        // Faturas passadas são omitidas da lista exposta no endpoint /invoices
                         if (!isCurrent && !isFuture) {
                             continue;
                         }

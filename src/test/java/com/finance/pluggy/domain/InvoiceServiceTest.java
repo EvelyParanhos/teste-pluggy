@@ -78,8 +78,10 @@ class InvoiceServiceTest {
     }
 
     @Test
-    @DisplayName("Deve selecionar a primeira fatura pendente (status != PAID) como atual e omitir faturas passadas já pagas")
-    void shouldSelectFirstUnpaidInvoiceInAscendingOrderAndExcludePastPaidInvoices() {
+    @DisplayName("Deve selecionar a fatura com closeDate mais recente (<= agora) como atual por data, ignorando o status de pagamento de faturas anteriores")
+    void shouldSelectMostRecentlyClosedInvoiceAsCurrentByDate() {
+        LocalDate now = LocalDate.now();
+
         Account creditCard = Account.builder()
                 .id(1L)
                 .name("Cartão Itaú Gold")
@@ -90,53 +92,55 @@ class InvoiceServiceTest {
                 .availableCreditLimit(new BigDecimal("3000.00"))
                 .build();
 
-        com.finance.pluggy.domain.model.Invoice paidInvoice = com.finance.pluggy.domain.model.Invoice.builder()
+        // Fatura do mês passado presa como OVERDUE (mesmo no passado)
+        com.finance.pluggy.domain.model.Invoice pastOverdueInvoice = com.finance.pluggy.domain.model.Invoice.builder()
                 .id(10L)
                 .pluggyBillId("bill-1")
                 .account(creditCard)
-                .closeDate(LocalDate.of(2026, 8, 5))
-                .dueDate(LocalDate.of(2026, 8, 10))
+                .closeDate(now.minusMonths(1).withDayOfMonth(3))
+                .dueDate(now.minusMonths(1).withDayOfMonth(10))
                 .totalAmount(new BigDecimal("500.00"))
-                .status("PAID")
-                .build();
-
-        com.finance.pluggy.domain.model.Invoice overdueInvoice = com.finance.pluggy.domain.model.Invoice.builder()
-                .id(11L)
-                .pluggyBillId("bill-2")
-                .account(creditCard)
-                .closeDate(LocalDate.of(2026, 9, 5))
-                .dueDate(LocalDate.of(2026, 9, 10))
-                .totalAmount(new BigDecimal("1200.00"))
                 .status("OVERDUE")
                 .build();
 
-        com.finance.pluggy.domain.model.Invoice openInvoice = com.finance.pluggy.domain.model.Invoice.builder()
+        // Fatura atual fechada recentemente (closeDate <= agora)
+        com.finance.pluggy.domain.model.Invoice currentInvoice = com.finance.pluggy.domain.model.Invoice.builder()
+                .id(11L)
+                .pluggyBillId("bill-2")
+                .account(creditCard)
+                .closeDate(now.minusDays(2))
+                .dueDate(now.plusDays(8))
+                .totalAmount(new BigDecimal("1200.00"))
+                .status("OPEN")
+                .build();
+
+        // Fatura futura (closeDate > agora)
+        com.finance.pluggy.domain.model.Invoice futureInvoice = com.finance.pluggy.domain.model.Invoice.builder()
                 .id(12L)
                 .pluggyBillId("bill-3")
                 .account(creditCard)
-                .closeDate(LocalDate.of(2026, 10, 5))
-                .dueDate(LocalDate.of(2026, 10, 10))
+                .closeDate(now.plusMonths(1).withDayOfMonth(3))
+                .dueDate(now.plusMonths(1).withDayOfMonth(10))
                 .totalAmount(new BigDecimal("800.00"))
                 .status("OPEN")
                 .build();
 
         when(accountRepository.findAll()).thenReturn(List.of(creditCard));
-        when(invoiceRepository.findByAccountIdOrderByDueDateAsc(1L)).thenReturn(List.of(paidInvoice, overdueInvoice, openInvoice));
+        when(invoiceRepository.findByAccountIdOrderByDueDateAsc(1L)).thenReturn(List.of(pastOverdueInvoice, currentInvoice, futureInvoice));
         when(transactionRepository.findByAccountId(1L)).thenReturn(Collections.emptyList());
 
         List<InvoiceResponse> invoices = invoiceService.getInvoices();
 
-        // A fatura paga do mês passado é omitida da lista exposta no endpoint
+        // Fatura do mês passado é omitida da lista
         assertThat(invoices).hasSize(2);
 
-        // A fatura atual é a OVERDUE (primeira com status != PAID em ordem ASC)
+        // A fatura selecionada como atual (isCurrent=true) deve ser a com closeDate mais recente <= agora (bill-2)
         InvoiceResponse currentInv = invoices.stream().filter(InvoiceResponse::isCurrent).findFirst().orElseThrow();
-        assertThat(currentInv.getBalanceDueDate()).isEqualTo(LocalDate.of(2026, 9, 10));
-        assertThat(currentInv.getStatus()).isEqualTo("OVERDUE");
+        assertThat(currentInv.getBalanceDueDate()).isEqualTo(now.plusDays(8));
+        assertThat(currentInv.getCurrentBalance()).isEqualByComparingTo("1200.00");
 
-        // A fatura futura é a OPEN com dueDate posterior à atual
+        // A fatura futura é a de mês seguinte
         InvoiceResponse futureInv = invoices.stream().filter(inv -> !inv.isCurrent()).findFirst().orElseThrow();
-        assertThat(futureInv.getBalanceDueDate()).isEqualTo(LocalDate.of(2026, 10, 10));
-        assertThat(futureInv.getStatus()).isEqualTo("OPEN");
+        assertThat(futureInv.getBalanceDueDate()).isEqualTo(now.plusMonths(1).withDayOfMonth(10));
     }
 }
