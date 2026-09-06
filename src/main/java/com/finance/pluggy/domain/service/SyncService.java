@@ -294,7 +294,9 @@ public class SyncService {
         BigDecimal totalAmount = invoice.getTotalAmount();
 
         for (Transaction tx : accountTxs) {
-            if (tx.getType() == com.finance.pluggy.domain.model.TransactionType.CREDIT && tx.getAmount() != null) {
+            if (tx.getType() == com.finance.pluggy.domain.model.TransactionType.CREDIT
+                    && tx.getStatus() != com.finance.pluggy.domain.model.TransactionStatus.PENDING
+                    && tx.getAmount() != null) {
                 BigDecimal txAmount = tx.getAmount().abs();
                 boolean dateMatches = minDate == null || (tx.getDate() != null && !tx.getDate().isBefore(minDate));
 
