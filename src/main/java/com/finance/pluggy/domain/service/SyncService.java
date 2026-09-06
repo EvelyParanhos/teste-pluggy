@@ -59,8 +59,29 @@ public class SyncService {
         log.info("Iniciando sincronização completa para o Item ID: {}", pluggyItemId);
 
         try {
-            // 1. Confirma o estado atualizado do Item diretamente na API do Pluggy
+            // 1. Solicita a atualização em tempo real (on-demand update) via PATCH /items/{id}
+            try {
+                log.info("Disparando PATCH /items/{} para atualização em tempo real na Pluggy...", pluggyItemId);
+                pluggyClient.requestItemUpdate(pluggyItemId);
+            } catch (Exception e) {
+                log.warn("Não foi possível solicitar PATCH /items/{} (usando cache/estado atual): {}", pluggyItemId, e.getMessage());
+            }
+
+            // 2. Confirma o estado do Item e aguarda conclusão caso esteja UPDATING (até 5 tentativas de 2s)
             PluggyItemResponse itemResponse = pluggyClient.getItem(pluggyItemId);
+            int pollAttempts = 0;
+            while (itemResponse != null && "UPDATING".equalsIgnoreCase(itemResponse.getStatus()) && pollAttempts < 5) {
+                log.info("Item {} está com status UPDATING na Pluggy. Aguardando atualização do conector ({}/5)...", pluggyItemId, pollAttempts + 1);
+                try {
+                    Thread.sleep(2000);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+                pollAttempts++;
+                itemResponse = pluggyClient.getItem(pluggyItemId);
+            }
+
             if (itemResponse == null) {
                 log.error("Item não encontrado na API do Pluggy para o ID: {}", pluggyItemId);
                 handleSyncFailure(pluggyItemId, new IllegalArgumentException("Item não encontrado na API Pluggy"));

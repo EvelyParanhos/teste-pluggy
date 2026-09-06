@@ -132,4 +132,24 @@ class PluggyClientTest {
         verify(authService, times(1)).invalidateApiKey();
         assertThat(mockWebServer.getRequestCount()).isEqualTo(2);
     }
+
+    @Test
+    @DisplayName("Deve solicitar atualização em tempo real de Item via PATCH /items/{id}")
+    void shouldSendPatchToRequestItemUpdate() throws InterruptedException {
+        mockWebServer.enqueue(new MockResponse()
+                .setResponseCode(200)
+                .setHeader("Content-Type", "application/json")
+                .setBody("{\"id\":\"item-123\",\"status\":\"UPDATING\"}"));
+
+        PluggyItemResponse item = pluggyClient.requestItemUpdate("item-123");
+
+        assertThat(item).isNotNull();
+        assertThat(item.getId()).isEqualTo("item-123");
+        assertThat(item.getStatus()).isEqualTo("UPDATING");
+
+        RecordedRequest request = mockWebServer.takeRequest();
+        assertThat(request.getMethod()).isEqualTo("PATCH");
+        assertThat(request.getPath()).isEqualTo("/items/item-123");
+        assertThat(request.getHeader("X-API-KEY")).isEqualTo("test-api-key");
+    }
 }

@@ -45,6 +45,20 @@ public class PluggyClient {
     }
 
     /**
+     * Solicita a atualização em tempo real (on-demand update) de um Item enviando PATCH /items/{id}.
+     */
+    public PluggyItemResponse requestItemUpdate(String itemId) {
+        return executeWithAuth(apiKey ->
+                pluggyWebClient.patch()
+                        .uri("/items/{id}", itemId)
+                        .header(API_KEY_HEADER, apiKey)
+                        .retrieve()
+                        .bodyToMono(PluggyItemResponse.class)
+                        .block()
+        );
+    }
+
+    /**
      * Busca os detalhes de um Item (conexão).
      */
     public PluggyItemResponse getItem(String itemId) {
