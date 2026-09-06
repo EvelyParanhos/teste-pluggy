@@ -10,6 +10,8 @@ import com.finance.pluggy.domain.repository.SyncLogRepository;
 import com.finance.pluggy.domain.repository.TransactionRepository;
 import com.finance.pluggy.domain.service.SyncService;
 import com.finance.pluggy.infrastructure.pluggy.client.PluggyClient;
+import com.finance.pluggy.infrastructure.pluggy.dto.PluggyBillPaymentResponse;
+import com.finance.pluggy.infrastructure.pluggy.dto.PluggyBillResponse;
 import com.finance.pluggy.infrastructure.pluggy.dto.PluggyAccountResponse;
 import com.finance.pluggy.infrastructure.pluggy.dto.PluggyItemResponse;
 import com.finance.pluggy.infrastructure.pluggy.dto.PluggyPageResponse;
@@ -23,11 +25,15 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
 
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -129,5 +135,107 @@ class SyncServiceTest {
         assertThat(savedLog.getAttempts()).isEqualTo(1);
         assertThat(savedLog.getLastError()).isEqualTo("API Connection Timeout");
         assertThat(savedLog.getNextAttemptAt()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("Deve reconciliar status de fatura anterior como PAID ao encontrar pagamento no payments[] da fatura seguinte (regra Pluggy)")
+    void shouldReconcileInvoiceStatusUsingNextBillPayments() {
+        String itemId = "item-cc-1";
+        String accountId = "acc-cc-1";
+
+        PluggyItemResponse itemDto = PluggyItemResponse.builder().id(itemId).status("UPDATED").build();
+        PluggyAccountResponse accountDto = PluggyAccountResponse.builder()
+                .id(accountId)
+                .itemId(itemId)
+                .type("CREDIT")
+                .subtype("CREDIT_CARD")
+                .build();
+
+        PluggyPageResponse<PluggyAccountResponse> accountsPage = PluggyPageResponse.<PluggyAccountResponse>builder()
+                .results(List.of(accountDto)).build();
+
+        // Fatura A (Outubro): R$ 745,24 total, sem pagamentos no seu próprio array payments[]
+        PluggyBillResponse billADto = PluggyBillResponse.builder()
+                .id("bill-october")
+                .dueDate("2026-10-10")
+                .totalAmount(new BigDecimal("745.24"))
+                .payments(Collections.emptyList())
+                .build();
+
+        // Fatura B (Novembro): Pagamento de R$ 745,24 referente a Outubro efetuado durante o ciclo de Novembro
+        PluggyBillPaymentResponse paymentForOct = PluggyBillPaymentResponse.builder()
+                .amount(new BigDecimal("745.24"))
+                .date("2026-10-28")
+                .build();
+
+        PluggyBillResponse billBDto = PluggyBillResponse.builder()
+                .id("bill-november")
+                .dueDate("2026-11-10")
+                .totalAmount(new BigDecimal("1200.00"))
+                .payments(List.of(paymentForOct))
+                .build();
+
+        PluggyPageResponse<PluggyBillResponse> billsPage = PluggyPageResponse.<PluggyBillResponse>builder()
+                .results(List.of(billADto, billBDto)).build();
+
+        Item itemEntity = Item.builder().id(1L).pluggyItemId(itemId).build();
+        Account accountEntity = Account.builder()
+                .id(2L)
+                .pluggyAccountId(accountId)
+                .type(AccountType.CREDIT)
+                .subtype(AccountSubtype.CREDIT_CARD)
+                .item(itemEntity)
+                .build();
+
+        Invoice invoiceAEntity = Invoice.builder()
+                .id(100L)
+                .pluggyBillId("bill-october")
+                .account(accountEntity)
+                .dueDate(LocalDate.of(2026, 10, 10))
+                .totalAmount(new BigDecimal("745.24"))
+                .status("OPEN")
+                .build();
+
+        Invoice invoiceBEntity = Invoice.builder()
+                .id(101L)
+                .pluggyBillId("bill-november")
+                .account(accountEntity)
+                .dueDate(LocalDate.of(2026, 11, 10))
+                .totalAmount(new BigDecimal("1200.00"))
+                .status("OPEN")
+                .build();
+
+        when(pluggyClient.getItem(itemId)).thenReturn(itemDto);
+        when(pluggyClient.getAccounts(itemId)).thenReturn(accountsPage);
+        when(pluggyClient.getBills(accountId)).thenReturn(billsPage);
+        when(pluggyClient.getTransactions(eq(accountId), any(), any(), any()))
+                .thenReturn(PluggyPageResponse.<PluggyTransactionResponse>builder().results(Collections.emptyList()).build());
+
+        when(pluggyDomainMapper.toItemEntity(any(), any())).thenReturn(itemEntity);
+        when(pluggyDomainMapper.toAccountEntity(any(), any(), any())).thenReturn(accountEntity);
+        when(itemRepository.save(any(Item.class))).thenReturn(itemEntity);
+        when(accountRepository.save(any(Account.class))).thenReturn(accountEntity);
+
+        when(pluggyDomainMapper.parseDate("2026-10-10")).thenReturn(LocalDate.of(2026, 10, 10));
+        when(pluggyDomainMapper.parseDate("2026-11-10")).thenReturn(LocalDate.of(2026, 11, 10));
+        when(pluggyDomainMapper.toInvoiceEntity(eq(billADto), any(), any())).thenReturn(invoiceAEntity);
+        when(pluggyDomainMapper.toInvoiceEntity(eq(billBDto), any(), any())).thenReturn(invoiceBEntity);
+
+        when(invoiceRepository.save(any(Invoice.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        // Executa sincronização do item
+        syncService.syncItem(itemId);
+
+        // Valida que a Fatura A (Outubro) foi reconciliada e salva com status PAID
+        ArgumentCaptor<Invoice> invoiceCaptor = ArgumentCaptor.forClass(Invoice.class);
+        verify(invoiceRepository, atLeast(2)).save(invoiceCaptor.capture());
+
+        List<Invoice> savedInvoices = invoiceCaptor.getAllValues();
+        Invoice finalInvoiceA = savedInvoices.stream()
+                .filter(inv -> "bill-october".equals(inv.getPluggyBillId()))
+                .reduce((first, second) -> second)
+                .orElseThrow();
+
+        assertThat(finalInvoiceA.getStatus()).isEqualTo("PAID");
     }
 }
