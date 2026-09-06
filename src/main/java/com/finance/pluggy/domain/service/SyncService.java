@@ -23,8 +23,11 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 
 @Slf4j
@@ -176,17 +179,77 @@ public class SyncService {
         try {
             com.finance.pluggy.infrastructure.pluggy.dto.PluggyPageResponse<com.finance.pluggy.infrastructure.pluggy.dto.PluggyBillResponse> billsPage =
                     pluggyClient.getBills(account.getPluggyAccountId());
-            if (billsPage != null && billsPage.getResults() != null) {
-                for (com.finance.pluggy.infrastructure.pluggy.dto.PluggyBillResponse billDto : billsPage.getResults()) {
+            if (billsPage != null && billsPage.getResults() != null && !billsPage.getResults().isEmpty()) {
+                List<com.finance.pluggy.infrastructure.pluggy.dto.PluggyBillResponse> billDtos = new ArrayList<>(billsPage.getResults());
+                
+                // Ordena as faturas recebidas por dueDate ascendente
+                billDtos.sort(Comparator.comparing(
+                        b -> pluggyDomainMapper.parseDate(b.getDueDate()),
+                        Comparator.nullsLast(Comparator.naturalOrder())
+                ));
+
+                List<com.finance.pluggy.domain.model.Invoice> savedInvoices = new ArrayList<>();
+                for (com.finance.pluggy.infrastructure.pluggy.dto.PluggyBillResponse billDto : billDtos) {
                     com.finance.pluggy.domain.model.Invoice existingInvoice =
                             invoiceRepository.findByPluggyBillId(billDto.getId()).orElse(null);
                     com.finance.pluggy.domain.model.Invoice invoice =
                             pluggyDomainMapper.toInvoiceEntity(billDto, account, existingInvoice);
-                    invoiceRepository.save(invoice);
+                    savedInvoices.add(invoiceRepository.save(invoice));
                 }
+
+                // Segunda passada: reconciliação Cross-Bill de status de pagamento
+                reconcileInvoiceStatuses(savedInvoices, billDtos);
             }
         } catch (Exception e) {
             log.warn("Não foi possível buscar faturas para a conta {}: {}", account.getPluggyAccountId(), e.getMessage());
+        }
+    }
+
+    /**
+     * Segunda passada de reconciliação cross-bill:
+     * O pagamento da fatura N aparece registrado no array payments[] da fatura N+1 (próxima por dueDate).
+     */
+    private void reconcileInvoiceStatuses(List<com.finance.pluggy.domain.model.Invoice> invoices,
+                                           List<com.finance.pluggy.infrastructure.pluggy.dto.PluggyBillResponse> billDtos) {
+        LocalDate now = LocalDate.now();
+        int size = invoices.size();
+
+        for (int i = 0; i < size; i++) {
+            com.finance.pluggy.domain.model.Invoice invoice = invoices.get(i);
+            BigDecimal totalPaid = BigDecimal.ZERO;
+
+            // Regra Cross-Bill Pluggy: O pagamento da fatura N aparece registrado no payments[] da fatura N+1
+            if (i + 1 < size) {
+                com.finance.pluggy.infrastructure.pluggy.dto.PluggyBillResponse nextBillDto = billDtos.get(i + 1);
+                if (nextBillDto.getPayments() != null && !nextBillDto.getPayments().isEmpty()) {
+                    totalPaid = nextBillDto.getPayments().stream()
+                            .map(p -> p.getAmount() != null ? p.getAmount() : BigDecimal.ZERO)
+                            .reduce(BigDecimal.ZERO, BigDecimal::add);
+                }
+            } else {
+                // Para a fatura mais recente (sem fatura N+1), verifica se possui pagamentos diretos salvos
+                com.finance.pluggy.infrastructure.pluggy.dto.PluggyBillResponse currentBillDto = billDtos.get(i);
+                if (currentBillDto.getPayments() != null && !currentBillDto.getPayments().isEmpty()) {
+                    totalPaid = currentBillDto.getPayments().stream()
+                            .map(p -> p.getAmount() != null ? p.getAmount() : BigDecimal.ZERO)
+                            .reduce(BigDecimal.ZERO, BigDecimal::add);
+                }
+            }
+
+            BigDecimal totalAmount = invoice.getTotalAmount();
+            String status = "OPEN";
+
+            if (totalAmount != null && totalAmount.compareTo(BigDecimal.ZERO) > 0 
+                    && totalPaid.compareTo(totalAmount) >= 0) {
+                status = "PAID";
+            } else if (invoice.getDueDate() != null && invoice.getDueDate().isBefore(now)) {
+                status = "OVERDUE";
+            } else if (invoice.getCloseDate() != null && invoice.getCloseDate().isBefore(now)) {
+                status = "CLOSED";
+            }
+
+            invoice.setStatus(status);
+            invoiceRepository.save(invoice);
         }
     }
 

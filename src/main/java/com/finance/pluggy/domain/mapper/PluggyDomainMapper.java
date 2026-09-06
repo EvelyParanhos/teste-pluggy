@@ -91,6 +91,9 @@ public class PluggyDomainMapper {
     /**
      * Mapeia um PluggyBillResponse para uma entidade Invoice.
      */
+    /**
+     * Mapeia um PluggyBillResponse para uma entidade Invoice.
+     */
     public Invoice toInvoiceEntity(com.finance.pluggy.infrastructure.pluggy.dto.PluggyBillResponse dto, Account account, Invoice target) {
         Invoice invoice = target != null ? target : Invoice.builder().pluggyBillId(dto.getId()).build();
 
@@ -101,25 +104,13 @@ public class PluggyDomainMapper {
         invoice.setTotalBalance(dto.getTotalBalance());
         invoice.setMinimumPaymentAmount(dto.getMinimumPaymentAmount());
 
-        // Cálculo de status da fatura
         LocalDate now = LocalDate.now();
-        BigDecimal totalPaid = BigDecimal.ZERO;
-        if (dto.getPayments() != null && !dto.getPayments().isEmpty()) {
-            totalPaid = dto.getPayments().stream()
-                    .map(p -> p.getAmount() != null ? p.getAmount() : BigDecimal.ZERO)
-                    .reduce(BigDecimal.ZERO, BigDecimal::add);
-        }
-
         String status = "OPEN";
-        if (dto.getTotalAmount() != null && dto.getTotalAmount().compareTo(BigDecimal.ZERO) > 0 
-                && totalPaid.compareTo(dto.getTotalAmount()) >= 0) {
-            status = "PAID";
-        } else if (invoice.getDueDate() != null && invoice.getDueDate().isBefore(now)) {
+        if (invoice.getDueDate() != null && invoice.getDueDate().isBefore(now)) {
             status = "OVERDUE";
         } else if (invoice.getCloseDate() != null && invoice.getCloseDate().isBefore(now)) {
             status = "CLOSED";
         }
-
         invoice.setStatus(status);
 
         return invoice;
@@ -170,7 +161,7 @@ public class PluggyDomainMapper {
         }
     }
 
-    private LocalDate parseDate(String dateStr) {
+    public LocalDate parseDate(String dateStr) {
         if (dateStr == null || dateStr.isBlank()) {
             return null;
         }
