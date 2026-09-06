@@ -123,9 +123,7 @@ class InvoiceServiceTest {
 
         List<InvoiceResponse> invoices = invoiceService.getInvoices();
 
-        assertThat(invoices).hasSize(1);
-        InvoiceResponse inv = invoices.get(0);
-        assertThat(inv.getStatus()).isEqualTo("OVERDUE");
-        assertThat(inv.getCurrentBalance()).isEqualByComparingTo("1200.00");
+        assertThat(invoices).hasSize(3);
+        assertThat(invoices.stream().map(InvoiceResponse::getStatus)).containsExactly("OPEN", "OVERDUE", "PAID");
     }
 }

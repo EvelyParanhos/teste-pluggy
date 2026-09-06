@@ -79,14 +79,15 @@ export const InvoicesPage: React.FC = () => {
           <p style={{ fontSize: '0.9rem' }}>Conecte sua conta bancária contendo cartão de crédito para visualizar suas faturas ativas e projetadas.</p>
         </div>
       ) : (
-        invoices.map((inv) => {
+        invoices.map((inv, idx) => {
           const isOverdue = inv.status === 'OVERDUE';
           const isClosed = inv.status === 'CLOSED';
+          const isPaid = inv.status === 'PAID';
           const futureTxs = inv.futureTransactions || [];
           const usedLimit = inv.totalUsedLimit !== undefined ? inv.totalUsedLimit : (inv.currentBalance + (inv.futureBalance || 0));
 
           return (
-            <div key={inv.accountId} className="card-fintech">
+            <div key={`${inv.accountId}-${inv.balanceDueDate || idx}`} className="card-fintech">
               
               {/* Header do Cartão */}
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
@@ -104,6 +105,10 @@ export const InvoicesPage: React.FC = () => {
                   {inv.pendingSync ? (
                     <span className="badge-status badge-warning" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                       <Clock size={14} /> AGUARDANDO SINCRONIZAÇÃO DE FATURAS
+                    </span>
+                  ) : isPaid ? (
+                    <span className="badge-status badge-positive" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <CheckCircle2 size={14} /> PAGA
                     </span>
                   ) : isOverdue ? (
                     <span className="badge-status badge-critical" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>

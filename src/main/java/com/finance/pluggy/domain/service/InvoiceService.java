@@ -52,87 +52,91 @@ public class InvoiceService {
                         : new BigDecimal("5000.00");
 
                 if (dbInvoices != null && !dbInvoices.isEmpty()) {
-                    // Seleciona de forma determinística a primeira fatura pendente (status != PAID) em ordem cronológica (dueDate ASC)
+                    // Seleciona de forma determinística a fatura atual em aberto/pendente (primeira status != PAID em ordem ASC)
                     com.finance.pluggy.domain.model.Invoice currentInvoice = dbInvoices.stream()
                             .filter(inv -> !"PAID".equalsIgnoreCase(inv.getStatus()))
                             .findFirst()
                             .orElse(dbInvoices.get(dbInvoices.size() - 1));
 
-                    BigDecimal currentBalance = currentInvoice.getTotalAmount() != null
-                            ? currentInvoice.getTotalAmount()
-                            : (currentInvoice.getTotalBalance() != null ? currentInvoice.getTotalBalance() : BigDecimal.ZERO);
-
-                    // Identifica a data de fechamento da fatura anterior no histórico (se houver) para o intervalo fallback
-                    int currentIndex = dbInvoices.indexOf(currentInvoice);
-                    LocalDate previousInvoiceCloseDate = (currentIndex > 0)
-                            ? dbInvoices.get(currentIndex - 1).getCloseDate()
-                            : null;
-
-                    // Transações itemizadas vinculadas a esta fatura pelo billId (prioritário) ou fallback por intervalo de datas
                     List<Transaction> accountTxs = transactionRepository.findByAccountId(acc.getId());
-                    List<Transaction> currentTxs = new ArrayList<>();
-                    List<Transaction> futureTxs = new ArrayList<>();
-                    BigDecimal futureBalance = BigDecimal.ZERO;
 
-                    for (Transaction tx : accountTxs) {
-                        String txBillId = tx.getPluggyBillId();
-                        LocalDate txDate = tx.getDate();
+                    // Retorna a lista completa de faturas (histórico, atual e futuras) em ordem decrescente de vencimento
+                    for (int idx = dbInvoices.size() - 1; idx >= 0; idx--) {
+                        com.finance.pluggy.domain.model.Invoice inv = dbInvoices.get(idx);
+                        int originalIndex = idx;
+                        LocalDate previousInvoiceCloseDate = (originalIndex > 0)
+                                ? dbInvoices.get(originalIndex - 1).getCloseDate()
+                                : null;
 
-                        if (txBillId != null && !txBillId.isBlank()) {
-                            // Match primário por billId oficial
-                            if (txBillId.equals(currentInvoice.getPluggyBillId())) {
-                                currentTxs.add(tx);
-                            } else if (currentInvoice.getCloseDate() != null && txDate != null && txDate.isAfter(currentInvoice.getCloseDate())) {
-                                futureTxs.add(tx);
-                                if (tx.getType() == TransactionType.DEBIT && tx.getAmount() != null) {
-                                    futureBalance = futureBalance.add(tx.getAmount().abs());
-                                }
-                            }
-                        } else {
-                            // Fallback para transações sem billId (ex: Nubank ou conectores com billId esparso) por intervalo de data
-                            if (currentInvoice.getCloseDate() != null && txDate != null && txDate.isAfter(currentInvoice.getCloseDate())) {
-                                futureTxs.add(tx);
-                                if (tx.getType() == TransactionType.DEBIT && tx.getAmount() != null) {
-                                    futureBalance = futureBalance.add(tx.getAmount().abs());
-                                }
-                            } else if (previousInvoiceCloseDate != null && txDate != null) {
-                                if (txDate.isAfter(previousInvoiceCloseDate)) {
-                                    currentTxs.add(tx);
+                        List<Transaction> invTxs = new ArrayList<>();
+                        List<Transaction> futureTxs = new ArrayList<>();
+                        BigDecimal futureBalance = BigDecimal.ZERO;
+                        boolean isCurrent = inv.getId() != null && inv.getId().equals(currentInvoice.getId());
+
+                        for (Transaction tx : accountTxs) {
+                            String txBillId = tx.getPluggyBillId();
+                            LocalDate txDate = tx.getDate();
+
+                            if (txBillId != null && !txBillId.isBlank()) {
+                                if (txBillId.equals(inv.getPluggyBillId())) {
+                                    invTxs.add(tx);
+                                } else if (isCurrent && inv.getCloseDate() != null && txDate != null && txDate.isAfter(inv.getCloseDate())) {
+                                    futureTxs.add(tx);
+                                    if (tx.getType() == TransactionType.DEBIT && tx.getAmount() != null) {
+                                        futureBalance = futureBalance.add(tx.getAmount().abs());
+                                    }
                                 }
                             } else {
-                                currentTxs.add(tx);
+                                if (inv.getCloseDate() != null && txDate != null && txDate.isAfter(inv.getCloseDate())) {
+                                    if (isCurrent) {
+                                        futureTxs.add(tx);
+                                        if (tx.getType() == TransactionType.DEBIT && tx.getAmount() != null) {
+                                            futureBalance = futureBalance.add(tx.getAmount().abs());
+                                        }
+                                    }
+                                } else if (previousInvoiceCloseDate != null && txDate != null) {
+                                    if (txDate.isAfter(previousInvoiceCloseDate)) {
+                                        invTxs.add(tx);
+                                    }
+                                } else {
+                                    invTxs.add(tx);
+                                }
                             }
                         }
+
+                        BigDecimal invBalance = inv.getTotalAmount() != null
+                                ? inv.getTotalAmount()
+                                : (inv.getTotalBalance() != null ? inv.getTotalBalance() : BigDecimal.ZERO);
+
+                        BigDecimal availableLimit = acc.getAvailableCreditLimit() != null
+                                ? acc.getAvailableCreditLimit()
+                                : limit.subtract(invBalance.add(futureBalance)).max(BigDecimal.ZERO);
+
+                        BigDecimal totalUsedLimit = limit.subtract(availableLimit).max(BigDecimal.ZERO);
+                        BigDecimal utilizationPct = limit.compareTo(BigDecimal.ZERO) > 0
+                                ? totalUsedLimit.multiply(new BigDecimal("100")).divide(limit, 1, RoundingMode.HALF_UP)
+                                : BigDecimal.ZERO;
+
+                        invoices.add(InvoiceResponse.builder()
+                                .accountId(acc.getId())
+                                .accountName(acc.getName() != null ? acc.getName() : "Cartão de Crédito")
+                                .maskedNumber(maskedNum)
+                                .status(inv.getStatus() != null ? inv.getStatus() : "OPEN")
+                                .currentBalance(invBalance)
+                                .futureBalance(futureBalance)
+                                .totalUsedLimit(totalUsedLimit)
+                                .creditLimit(limit)
+                                .availableCreditLimit(availableLimit)
+                                .utilizationPercentage(utilizationPct)
+                                .balanceCloseDate(inv.getCloseDate())
+                                .balanceDueDate(inv.getDueDate())
+                                .minimumPaymentAmount(inv.getMinimumPaymentAmount())
+                                .transactionCount(invTxs.size())
+                                .transactions(invTxs)
+                                .futureTransactions(futureTxs)
+                                .pendingSync(false)
+                                .build());
                     }
-
-                    BigDecimal availableLimit = acc.getAvailableCreditLimit() != null
-                            ? acc.getAvailableCreditLimit()
-                            : limit.subtract(currentBalance.add(futureBalance)).max(BigDecimal.ZERO);
-
-                    BigDecimal totalUsedLimit = limit.subtract(availableLimit).max(BigDecimal.ZERO);
-                    BigDecimal utilizationPct = limit.compareTo(BigDecimal.ZERO) > 0
-                            ? totalUsedLimit.multiply(new BigDecimal("100")).divide(limit, 1, RoundingMode.HALF_UP)
-                            : BigDecimal.ZERO;
-
-                    invoices.add(InvoiceResponse.builder()
-                            .accountId(acc.getId())
-                            .accountName(acc.getName() != null ? acc.getName() : "Cartão de Crédito")
-                            .maskedNumber(maskedNum)
-                            .status(currentInvoice.getStatus() != null ? currentInvoice.getStatus() : "OPEN")
-                            .currentBalance(currentBalance)
-                            .futureBalance(futureBalance)
-                            .totalUsedLimit(totalUsedLimit)
-                            .creditLimit(limit)
-                            .availableCreditLimit(availableLimit)
-                            .utilizationPercentage(utilizationPct)
-                            .balanceCloseDate(currentInvoice.getCloseDate())
-                            .balanceDueDate(currentInvoice.getDueDate())
-                            .minimumPaymentAmount(currentInvoice.getMinimumPaymentAmount())
-                            .transactionCount(currentTxs.size())
-                            .transactions(currentTxs)
-                            .futureTransactions(futureTxs)
-                            .pendingSync(false)
-                            .build());
                 } else {
                     // Fallback para contas sem faturas salvas (ex: logo após conectar, antes do primeiro sync de bills)
                     List<Transaction> accountTxs = transactionRepository.findByAccountId(acc.getId());
