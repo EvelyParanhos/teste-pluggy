@@ -60,11 +60,8 @@ public class InvoiceService {
                             .max(Comparator.naturalOrder())
                             .orElse(null);
 
-                    LocalDate accRefDate = acc.getBalanceCloseDate() != null ? acc.getBalanceCloseDate() : acc.getBalanceDueDate();
-
                     hasReliableBills = maxBillDate != null
-                            && accRefDate != null
-                            && Math.abs(java.time.temporal.ChronoUnit.DAYS.between(maxBillDate, accRefDate)) <= 35;
+                            && java.time.temporal.ChronoUnit.DAYS.between(maxBillDate, now) <= 32;
                 }
 
                 if (hasReliableBills) {

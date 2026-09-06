@@ -227,4 +227,50 @@ class InvoiceServiceTest {
         assertThat(response.isPendingSync()).isTrue();
         assertThat(response.isCurrent()).isTrue();
     }
+
+    @Test
+    @DisplayName("Deve acionar o fallback por extrato quando a fatura mais recente salva for mais antiga que 32 dias")
+    void shouldFallbackToStatementWhenMaxBillDateIsOlderThan32Days() {
+        LocalDate now = LocalDate.of(2026, 9, 6);
+        LocalDate oldBillCloseDate = LocalDate.of(2026, 8, 3); // 34 dias atrás
+
+        Account creditCard = Account.builder()
+                .id(1L)
+                .name("Cartão Itaú Direct")
+                .number("1122")
+                .type(AccountType.CREDIT)
+                .subtype(AccountSubtype.CREDIT_CARD)
+                .balance(new BigDecimal("402.52"))
+                .creditLimit(new BigDecimal("5000.00"))
+                .availableCreditLimit(new BigDecimal("4597.48"))
+                .balanceCloseDate(now.withDayOfMonth(3))
+                .balanceDueDate(now.withDayOfMonth(10))
+                .build();
+
+        // Fatura antiga salva em dbInvoices (34 dias atrás)
+        com.finance.pluggy.domain.model.Invoice oldInvoice = com.finance.pluggy.domain.model.Invoice.builder()
+                .id(10L)
+                .pluggyBillId("bill-old")
+                .account(creditCard)
+                .closeDate(oldBillCloseDate)
+                .dueDate(oldBillCloseDate.plusDays(7))
+                .totalAmount(new BigDecimal("503.13"))
+                .status("OVERDUE")
+                .build();
+
+        when(accountRepository.findAll()).thenReturn(List.of(creditCard));
+        when(invoiceRepository.findByAccountIdOrderByDueDateAsc(1L)).thenReturn(List.of(oldInvoice));
+        when(transactionRepository.findByAccountId(1L)).thenReturn(Collections.emptyList());
+
+        List<InvoiceResponse> invoices = invoiceService.getInvoices();
+
+        // Como a fatura em dbInvoices tem 34 dias (> 32 dias), o gate de confiabilidade rejeita e entra no fallback por extrato
+        assertThat(invoices).hasSize(1);
+        InvoiceResponse response = invoices.get(0);
+
+        assertThat(response.getAccountName()).isEqualTo("Cartão Itaú Direct");
+        assertThat(response.getCurrentBalance()).isEqualByComparingTo("402.52");
+        assertThat(response.isPendingSync()).isTrue();
+        assertThat(response.isCurrent()).isTrue();
+    }
 }
