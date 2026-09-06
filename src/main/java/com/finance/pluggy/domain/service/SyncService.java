@@ -278,7 +278,11 @@ public class SyncService {
     }
 
     private boolean isPaidByTransaction(com.finance.pluggy.domain.model.Invoice invoice, Account account) {
-        if (invoice.getTotalAmount() == null || invoice.getTotalAmount().compareTo(BigDecimal.ZERO) <= 0) {
+        LocalDate minDate = invoice.getCloseDate() != null
+                ? invoice.getCloseDate()
+                : (invoice.getDueDate() != null ? invoice.getDueDate().minusDays(10) : null);
+
+        if (minDate == null) {
             return false;
         }
 
@@ -287,20 +291,17 @@ public class SyncService {
             return false;
         }
 
-        LocalDate minDate = invoice.getCloseDate() != null
-                ? invoice.getCloseDate().minusDays(5)
-                : (invoice.getDueDate() != null ? invoice.getDueDate().minusDays(30) : null);
-
-        BigDecimal totalAmount = invoice.getTotalAmount();
-
         for (Transaction tx : accountTxs) {
-            if (tx.getType() == com.finance.pluggy.domain.model.TransactionType.CREDIT
-                    && tx.getStatus() != com.finance.pluggy.domain.model.TransactionStatus.PENDING
-                    && tx.getAmount() != null) {
-                BigDecimal txAmount = tx.getAmount().abs();
-                boolean dateMatches = minDate == null || (tx.getDate() != null && !tx.getDate().isBefore(minDate));
+            if (tx.getType() == com.finance.pluggy.domain.model.TransactionType.CREDIT && tx.getDate() != null && !tx.getDate().isBefore(minDate)) {
+                boolean isCategoryPayment = tx.getPluggyCategory() != null && tx.getPluggyCategory().equalsIgnoreCase("Credit card payment");
+                boolean isDescPayment = tx.getDescription() != null && (
+                        tx.getDescription().toLowerCase().contains("pagamento de fatura")
+                        || tx.getDescription().toLowerCase().contains("pagamento de cartão")
+                        || tx.getDescription().toLowerCase().contains("pagamento de cartao")
+                        || tx.getDescription().toLowerCase().contains("pagto fatura")
+                );
 
-                if (dateMatches && txAmount.subtract(totalAmount).abs().compareTo(new BigDecimal("0.05")) <= 0) {
+                if (isCategoryPayment || isDescPayment) {
                     return true;
                 }
             }

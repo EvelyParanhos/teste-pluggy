@@ -52,7 +52,15 @@ public class InvoiceService {
                         ? acc.getCreditLimit()
                         : new BigDecimal("5000.00");
 
+                boolean hasReliableBills = false;
                 if (dbInvoices != null && !dbInvoices.isEmpty()) {
+                    hasReliableBills = dbInvoices.stream().anyMatch(inv -> {
+                        LocalDate refDate = inv.getCloseDate() != null ? inv.getCloseDate() : inv.getDueDate();
+                        return refDate != null && !refDate.isBefore(now.minusDays(60));
+                    });
+                }
+
+                if (hasReliableBills) {
                     // Seleciona a fatura atual de forma determinística por data (a fatura fechada mais recente: closeDate <= agora)
                     com.finance.pluggy.domain.model.Invoice currentInvoice = dbInvoices.stream()
                             .filter(inv -> inv.getCloseDate() != null && !inv.getCloseDate().isAfter(now))
@@ -159,8 +167,16 @@ public class InvoiceService {
                                 .build());
                     }
                 } else {
-                    // Fallback para contas sem faturas salvas (ex: logo após conectar, antes do primeiro sync de bills)
+                    // Fallback por extrato para contas sem faturas salvas ou conectores sem GET /bills confiável (ex: Itaú)
                     List<Transaction> accountTxs = transactionRepository.findByAccountId(acc.getId());
+
+                    // Identifica a transação de pagamento de fatura mais recente no extrato
+                    Transaction lastPaymentTx = accountTxs.stream()
+                            .filter(this::isCreditCardPayment)
+                            .max(Comparator.comparing(Transaction::getDate, Comparator.nullsFirst(Comparator.naturalOrder())))
+                            .orElse(null);
+
+                    LocalDate lastPaymentDate = lastPaymentTx != null ? lastPaymentTx.getDate() : null;
 
                     LocalDate closeDate = acc.getBalanceCloseDate() != null
                             ? acc.getBalanceCloseDate()
@@ -177,19 +193,36 @@ public class InvoiceService {
                     BigDecimal futureBalance = BigDecimal.ZERO;
 
                     for (Transaction tx : accountTxs) {
+                        if (lastPaymentTx != null && tx.getId() != null && tx.getId().equals(lastPaymentTx.getId())) {
+                            // Exclui o lançamento do próprio pagamento da soma da fatura atual
+                            continue;
+                        }
+
                         BigDecimal txAmount = tx.getAmount() != null ? tx.getAmount().abs() : BigDecimal.ZERO;
-                        if (tx.getDate() != null && tx.getDate().isAfter(closeDate)) {
+                        LocalDate txDate = tx.getDate();
+
+                        if (txDate != null && txDate.isAfter(closeDate)) {
                             futureTxs.add(tx);
-                            if (tx.getType() == TransactionType.DEBIT) futureBalance = futureBalance.add(txAmount);
-                            else if (tx.getType() == TransactionType.CREDIT) futureBalance = futureBalance.subtract(txAmount);
+                            if (tx.getType() == TransactionType.DEBIT) {
+                                futureBalance = futureBalance.add(txAmount);
+                            } else if (tx.getType() == TransactionType.CREDIT) {
+                                futureBalance = futureBalance.subtract(txAmount);
+                            }
+                        } else if (lastPaymentDate != null && txDate != null && !txDate.isAfter(lastPaymentDate)) {
+                            // Transações ocorridas até a data do último pagamento pertencem ao ciclo anterior
+                            continue;
                         } else {
+                            // Transações no intervalo após o último pagamento até a data de fechamento
                             currentTxs.add(tx);
-                            if (tx.getType() == TransactionType.DEBIT) currentBalance = currentBalance.add(txAmount);
-                            else if (tx.getType() == TransactionType.CREDIT) currentBalance = currentBalance.subtract(txAmount);
+                            if (tx.getType() == TransactionType.DEBIT) {
+                                currentBalance = currentBalance.add(txAmount);
+                            } else if (tx.getType() == TransactionType.CREDIT) {
+                                currentBalance = currentBalance.subtract(txAmount);
+                            }
                         }
                     }
 
-                    if (currentBalance.compareTo(BigDecimal.ZERO) == 0 && acc.getBalance() != null && acc.getBalance().compareTo(BigDecimal.ZERO) > 0) {
+                    if (currentBalance.compareTo(BigDecimal.ZERO) <= 0 && acc.getBalance() != null && acc.getBalance().compareTo(BigDecimal.ZERO) > 0) {
                         currentBalance = acc.getBalance();
                     }
 
@@ -234,6 +267,50 @@ public class InvoiceService {
         }
 
         return invoices;
+    }
+
+    private boolean isCreditCardPayment(Transaction tx) {
+        if (tx == null) return false;
+
+        String category = tx.getPluggyCategory();
+        if (category != null && !category.isBlank()) {
+            String lowerCat = category.toLowerCase();
+            if (lowerCat.contains("credit card payment")
+                    || lowerCat.contains("credit_card_payment")
+                    || lowerCat.contains("pagamento de cartão")
+                    || lowerCat.contains("pagamento de cartao")
+                    || lowerCat.contains("pagamento fatura")) {
+                return true;
+            }
+        }
+
+        String desc = tx.getDescription();
+        if (desc != null && !desc.isBlank()) {
+            String lowerDesc = desc.toLowerCase();
+            if (lowerDesc.contains("pagamento de fatura")
+                    || lowerDesc.contains("pagamento fatura")
+                    || lowerDesc.contains("pagamento de cartao")
+                    || lowerDesc.contains("pagamento de cartão")
+                    || lowerDesc.contains("pagto fatura")
+                    || lowerDesc.contains("pagamento efetuado")
+                    || lowerDesc.contains("pagamento recebido")) {
+                return true;
+            }
+        }
+
+        String rawDesc = tx.getRawDescription();
+        if (rawDesc != null && !rawDesc.isBlank()) {
+            String lowerRaw = rawDesc.toLowerCase();
+            if (lowerRaw.contains("pagamento de fatura")
+                    || lowerRaw.contains("pagamento fatura")
+                    || lowerRaw.contains("pagamento de cartao")
+                    || lowerRaw.contains("pagamento de cartão")
+                    || lowerRaw.contains("pagto fatura")) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private boolean isCreditCard(Account acc) {

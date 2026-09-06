@@ -143,4 +143,86 @@ class InvoiceServiceTest {
         InvoiceResponse futureInv = invoices.stream().filter(inv -> !inv.isCurrent()).findFirst().orElseThrow();
         assertThat(futureInv.getBalanceDueDate()).isEqualTo(now.plusMonths(1).withDayOfMonth(10));
     }
+
+    @Test
+    @DisplayName("Deve derivar a fatura atual pelo extrato somando transações ocorridas após o último pagamento de cartão")
+    void shouldDeriveCurrentInvoiceFromStatementTransactionsAfterLastPayment() {
+        LocalDate now = LocalDate.of(2026, 9, 6);
+        LocalDate closeDate = LocalDate.of(2026, 9, 3);
+        LocalDate dueDate = LocalDate.of(2026, 9, 10);
+
+        Account creditCard = Account.builder()
+                .id(1L)
+                .name("Cartão Itaú Uniclass")
+                .number("9988")
+                .type(AccountType.CREDIT)
+                .subtype(AccountSubtype.CREDIT_CARD)
+                .creditLimit(new BigDecimal("5000.00"))
+                .availableCreditLimit(new BigDecimal("4774.23"))
+                .balanceCloseDate(closeDate)
+                .balanceDueDate(dueDate)
+                .build();
+
+        // Transação de pagamento do mês passado (02/08)
+        com.finance.pluggy.domain.model.Transaction paymentTx = com.finance.pluggy.domain.model.Transaction.builder()
+                .id(100L)
+                .pluggyTransactionId("tx-pay-aug")
+                .account(creditCard)
+                .pluggyCategory("Credit card payment")
+                .description("Pagamento de fatura")
+                .type(com.finance.pluggy.domain.model.TransactionType.CREDIT)
+                .amount(new BigDecimal("503.13"))
+                .date(LocalDate.of(2026, 8, 2))
+                .build();
+
+        // Transações da fatura atual (entre 03/08 e 03/09)
+        com.finance.pluggy.domain.model.Transaction tx1 = com.finance.pluggy.domain.model.Transaction.builder()
+                .id(101L)
+                .pluggyTransactionId("tx-current-1")
+                .account(creditCard)
+                .description("Restaurante")
+                .type(com.finance.pluggy.domain.model.TransactionType.DEBIT)
+                .amount(new BigDecimal("50.00"))
+                .date(LocalDate.of(2026, 8, 10))
+                .build();
+
+        com.finance.pluggy.domain.model.Transaction tx2 = com.finance.pluggy.domain.model.Transaction.builder()
+                .id(102L)
+                .pluggyTransactionId("tx-current-2")
+                .account(creditCard)
+                .description("Farmácia")
+                .type(com.finance.pluggy.domain.model.TransactionType.DEBIT)
+                .amount(new BigDecimal("75.77"))
+                .date(LocalDate.of(2026, 8, 25))
+                .build();
+
+        // Transação pós-fechamento (futura)
+        com.finance.pluggy.domain.model.Transaction txFuture = com.finance.pluggy.domain.model.Transaction.builder()
+                .id(103L)
+                .pluggyTransactionId("tx-future-1")
+                .account(creditCard)
+                .description("Supermercado")
+                .type(com.finance.pluggy.domain.model.TransactionType.DEBIT)
+                .amount(new BigDecimal("100.00"))
+                .date(LocalDate.of(2026, 9, 5))
+                .build();
+
+        when(accountRepository.findAll()).thenReturn(List.of(creditCard));
+        when(invoiceRepository.findByAccountIdOrderByDueDateAsc(1L)).thenReturn(Collections.emptyList());
+        when(transactionRepository.findByAccountId(1L)).thenReturn(List.of(paymentTx, tx1, tx2, txFuture));
+
+        List<InvoiceResponse> invoices = invoiceService.getInvoices();
+
+        assertThat(invoices).hasSize(1);
+        InvoiceResponse response = invoices.get(0);
+
+        assertThat(response.getAccountName()).isEqualTo("Cartão Itaú Uniclass");
+        assertThat(response.getCurrentBalance()).isEqualByComparingTo("125.77");
+        assertThat(response.getFutureBalance()).isEqualByComparingTo("100.00");
+        assertThat(response.getTransactionCount()).isEqualTo(2);
+        assertThat(response.getTransactions()).containsExactlyInAnyOrder(tx1, tx2);
+        assertThat(response.getFutureTransactions()).containsExactly(txFuture);
+        assertThat(response.isPendingSync()).isTrue();
+        assertThat(response.isCurrent()).isTrue();
+    }
 }

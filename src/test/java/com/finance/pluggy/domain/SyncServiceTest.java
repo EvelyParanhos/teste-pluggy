@@ -287,13 +287,14 @@ class SyncServiceTest {
                 .status("OPEN")
                 .build();
 
-        // Transação de pagamento via cartão/crédito (CREDIT) confirmada (POSTED) no valor de R$ 500,00
+        // Transação de pagamento via cartão/crédito (CREDIT) com categoria "Credit card payment"
         Transaction paymentTx = Transaction.builder()
                 .id(300L)
                 .pluggyTransactionId("tx-pay-1")
                 .account(accountEntity)
                 .type(TransactionType.CREDIT)
-                .status(TransactionStatus.POSTED)
+                .pluggyCategory("Credit card payment")
+                .description("Pagamento de fatura")
                 .amount(new BigDecimal("500.00"))
                 .date(LocalDate.of(2026, 9, 5))
                 .build();
@@ -326,8 +327,8 @@ class SyncServiceTest {
     }
 
     @Test
-    @DisplayName("Não deve marcar fatura como PAID se a transação CREDIT correspondente estiver com status PENDING")
-    void shouldNotReconcileInvoiceStatusIfCreditTransactionIsPending() {
+    @DisplayName("Não deve marcar fatura como PAID se a transação CREDIT não for um pagamento de fatura (ex: estorno)")
+    void shouldNotReconcileInvoiceStatusIfCreditTransactionIsNotACardPayment() {
         String itemId = "item-cc-3";
         String accountId = "acc-cc-3";
 
@@ -371,13 +372,14 @@ class SyncServiceTest {
                 .status("OVERDUE")
                 .build();
 
-        // Transação de crédito PENDENTE (não confirmada)
-        Transaction pendingTx = Transaction.builder()
+        // Transação de crédito genérica que NÃO é pagamento de fatura (ex: estorno de compra)
+        Transaction refundTx = Transaction.builder()
                 .id(400L)
-                .pluggyTransactionId("tx-pending-1")
+                .pluggyTransactionId("tx-refund-1")
                 .account(accountEntity)
                 .type(TransactionType.CREDIT)
-                .status(TransactionStatus.PENDING)
+                .pluggyCategory("Refund")
+                .description("Estorno de compra Uber")
                 .amount(new BigDecimal("500.00"))
                 .date(LocalDate.of(2026, 8, 5))
                 .build();
@@ -395,7 +397,7 @@ class SyncServiceTest {
 
         when(pluggyDomainMapper.toInvoiceEntity(eq(billDto), any(), any())).thenReturn(invoiceEntity);
         when(invoiceRepository.findByAccountIdOrderByDueDateAsc(3L)).thenReturn(List.of(invoiceEntity));
-        when(transactionRepository.findByAccountId(3L)).thenReturn(List.of(pendingTx));
+        when(transactionRepository.findByAccountId(3L)).thenReturn(List.of(refundTx));
 
         when(invoiceRepository.save(any(Invoice.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
