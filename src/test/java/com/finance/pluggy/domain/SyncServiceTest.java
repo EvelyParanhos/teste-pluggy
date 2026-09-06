@@ -221,6 +221,7 @@ class SyncServiceTest {
         when(pluggyDomainMapper.toInvoiceEntity(eq(billADto), any(), any())).thenReturn(invoiceAEntity);
         when(pluggyDomainMapper.toInvoiceEntity(eq(billBDto), any(), any())).thenReturn(invoiceBEntity);
 
+        when(invoiceRepository.findByAccountIdOrderByDueDateAsc(2L)).thenReturn(List.of(invoiceAEntity, invoiceBEntity));
         when(invoiceRepository.save(any(Invoice.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         // Executa sincronização do item
@@ -237,5 +238,89 @@ class SyncServiceTest {
                 .orElseThrow();
 
         assertThat(finalInvoiceA.getStatus()).isEqualTo("PAID");
+    }
+
+    @Test
+    @DisplayName("Deve reconciliar status de fatura como PAID quando houver transação CREDIT correspondente e não existir fatura N+1")
+    void shouldReconcileInvoiceStatusUsingCreditTransactionWhenNoNextBillExists() {
+        String itemId = "item-cc-2";
+        String accountId = "acc-cc-2";
+
+        PluggyItemResponse itemDto = PluggyItemResponse.builder().id(itemId).status("UPDATED").build();
+        PluggyAccountResponse accountDto = PluggyAccountResponse.builder()
+                .id(accountId)
+                .itemId(itemId)
+                .type("CREDIT")
+                .subtype("CREDIT_CARD")
+                .build();
+
+        PluggyPageResponse<PluggyAccountResponse> accountsPage = PluggyPageResponse.<PluggyAccountResponse>builder()
+                .results(List.of(accountDto)).build();
+
+        // Fatura única fechada no Pluggy sem pagamentos e sem fatura N+1
+        PluggyBillResponse billDto = PluggyBillResponse.builder()
+                .id("bill-september")
+                .dueDate("2026-09-10")
+                .totalAmount(new BigDecimal("500.00"))
+                .payments(Collections.emptyList())
+                .build();
+
+        PluggyPageResponse<PluggyBillResponse> billsPage = PluggyPageResponse.<PluggyBillResponse>builder()
+                .results(List.of(billDto)).build();
+
+        Item itemEntity = Item.builder().id(1L).pluggyItemId(itemId).build();
+        Account accountEntity = Account.builder()
+                .id(2L)
+                .pluggyAccountId(accountId)
+                .type(AccountType.CREDIT)
+                .subtype(AccountSubtype.CREDIT_CARD)
+                .item(itemEntity)
+                .build();
+
+        Invoice invoiceEntity = Invoice.builder()
+                .id(200L)
+                .pluggyBillId("bill-september")
+                .account(accountEntity)
+                .closeDate(LocalDate.of(2026, 9, 1))
+                .dueDate(LocalDate.of(2026, 9, 10))
+                .totalAmount(new BigDecimal("500.00"))
+                .status("OPEN")
+                .build();
+
+        // Transação de pagamento via cartão/crédito (CREDIT) no valor de R$ 500,00
+        Transaction paymentTx = Transaction.builder()
+                .id(300L)
+                .pluggyTransactionId("tx-pay-1")
+                .account(accountEntity)
+                .type(TransactionType.CREDIT)
+                .amount(new BigDecimal("500.00"))
+                .date(LocalDate.of(2026, 9, 5))
+                .build();
+
+        when(pluggyClient.getItem(itemId)).thenReturn(itemDto);
+        when(pluggyClient.getAccounts(itemId)).thenReturn(accountsPage);
+        when(pluggyClient.getBills(accountId)).thenReturn(billsPage);
+        when(pluggyClient.getTransactions(eq(accountId), any(), any(), any()))
+                .thenReturn(PluggyPageResponse.<PluggyTransactionResponse>builder().results(Collections.emptyList()).build());
+
+        when(pluggyDomainMapper.toItemEntity(any(), any())).thenReturn(itemEntity);
+        when(pluggyDomainMapper.toAccountEntity(any(), any(), any())).thenReturn(accountEntity);
+        when(itemRepository.save(any(Item.class))).thenReturn(itemEntity);
+        when(accountRepository.save(any(Account.class))).thenReturn(accountEntity);
+
+        when(pluggyDomainMapper.toInvoiceEntity(eq(billDto), any(), any())).thenReturn(invoiceEntity);
+        when(invoiceRepository.findByAccountIdOrderByDueDateAsc(2L)).thenReturn(List.of(invoiceEntity));
+        when(transactionRepository.findByAccountId(2L)).thenReturn(List.of(paymentTx));
+
+        when(invoiceRepository.save(any(Invoice.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        syncService.syncItem(itemId);
+
+        ArgumentCaptor<Invoice> invoiceCaptor = ArgumentCaptor.forClass(Invoice.class);
+        verify(invoiceRepository, atLeastOnce()).save(invoiceCaptor.capture());
+
+        List<Invoice> savedInvoices = invoiceCaptor.getAllValues();
+        Invoice finalInvoice = savedInvoices.get(savedInvoices.size() - 1);
+        assertThat(finalInvoice.getStatus()).isEqualTo("PAID");
     }
 }

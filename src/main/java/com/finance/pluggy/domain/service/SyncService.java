@@ -28,7 +28,9 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 @Slf4j
 @Service
@@ -176,71 +178,93 @@ public class SyncService {
     }
 
     private void syncBillsForAccount(Account account) {
+        List<com.finance.pluggy.infrastructure.pluggy.dto.PluggyBillResponse> billDtos = null;
         try {
             com.finance.pluggy.infrastructure.pluggy.dto.PluggyPageResponse<com.finance.pluggy.infrastructure.pluggy.dto.PluggyBillResponse> billsPage =
                     pluggyClient.getBills(account.getPluggyAccountId());
             if (billsPage != null && billsPage.getResults() != null && !billsPage.getResults().isEmpty()) {
-                List<com.finance.pluggy.infrastructure.pluggy.dto.PluggyBillResponse> billDtos = new ArrayList<>(billsPage.getResults());
-                
+                billDtos = new ArrayList<>(billsPage.getResults());
+
                 // Ordena as faturas recebidas por dueDate ascendente
                 billDtos.sort(Comparator.comparing(
                         b -> pluggyDomainMapper.parseDate(b.getDueDate()),
                         Comparator.nullsLast(Comparator.naturalOrder())
                 ));
 
-                List<com.finance.pluggy.domain.model.Invoice> savedInvoices = new ArrayList<>();
                 for (com.finance.pluggy.infrastructure.pluggy.dto.PluggyBillResponse billDto : billDtos) {
                     com.finance.pluggy.domain.model.Invoice existingInvoice =
                             invoiceRepository.findByPluggyBillId(billDto.getId()).orElse(null);
                     com.finance.pluggy.domain.model.Invoice invoice =
                             pluggyDomainMapper.toInvoiceEntity(billDto, account, existingInvoice);
-                    savedInvoices.add(invoiceRepository.save(invoice));
+                    invoiceRepository.save(invoice);
                 }
-
-                // Segunda passada: reconciliação Cross-Bill de status de pagamento
-                reconcileInvoiceStatuses(savedInvoices, billDtos);
             }
         } catch (Exception e) {
             log.warn("Não foi possível buscar faturas para a conta {}: {}", account.getPluggyAccountId(), e.getMessage());
         }
+
+        try {
+            // Segunda passada: reconciliação de status sobre TODAS as faturas persistidas no banco para a conta
+            reconcileInvoiceStatuses(account, billDtos);
+        } catch (Exception e) {
+            log.warn("Erro ao reconciliar status das faturas para a conta {}: {}", account.getPluggyAccountId(), e.getMessage());
+        }
     }
 
     /**
-     * Segunda passada de reconciliação cross-bill:
-     * O pagamento da fatura N aparece registrado no array payments[] da fatura N+1 (próxima por dueDate).
+     * Segunda passada de reconciliação de status de pagamento:
+     * 1. Regra oficial Cross-Bill: O pagamento da fatura N aparece no payments[] da fatura N+1 (ciclo seguinte).
+     * 2. Fallback de alta precisão por transação: Procura por uma transação CREDIT na conta após o fechamento da fatura cujo valor coincida com totalAmount.
      */
-    private void reconcileInvoiceStatuses(List<com.finance.pluggy.domain.model.Invoice> invoices,
+    private void reconcileInvoiceStatuses(Account account,
                                            List<com.finance.pluggy.infrastructure.pluggy.dto.PluggyBillResponse> billDtos) {
+        List<com.finance.pluggy.domain.model.Invoice> invoices =
+                invoiceRepository.findByAccountIdOrderByDueDateAsc(account.getId());
+
+        if (invoices == null || invoices.isEmpty()) {
+            return;
+        }
+
+        Map<String, com.finance.pluggy.infrastructure.pluggy.dto.PluggyBillResponse> dtoMap = new HashMap<>();
+        if (billDtos != null) {
+            for (com.finance.pluggy.infrastructure.pluggy.dto.PluggyBillResponse dto : billDtos) {
+                if (dto.getId() != null) {
+                    dtoMap.put(dto.getId(), dto);
+                }
+            }
+        }
+
         LocalDate now = LocalDate.now();
         int size = invoices.size();
 
         for (int i = 0; i < size; i++) {
             com.finance.pluggy.domain.model.Invoice invoice = invoices.get(i);
             BigDecimal totalPaid = BigDecimal.ZERO;
+            boolean isPaid = false;
 
-            // Regra Cross-Bill Pluggy: O pagamento da fatura N aparece registrado no payments[] da fatura N+1
+            // 1. Regra Cross-Bill Pluggy: O pagamento da fatura N aparece registrado no payments[] da fatura N+1
             if (i + 1 < size) {
-                com.finance.pluggy.infrastructure.pluggy.dto.PluggyBillResponse nextBillDto = billDtos.get(i + 1);
-                if (nextBillDto.getPayments() != null && !nextBillDto.getPayments().isEmpty()) {
+                com.finance.pluggy.domain.model.Invoice nextInvoice = invoices.get(i + 1);
+                com.finance.pluggy.infrastructure.pluggy.dto.PluggyBillResponse nextBillDto = dtoMap.get(nextInvoice.getPluggyBillId());
+                if (nextBillDto != null && nextBillDto.getPayments() != null && !nextBillDto.getPayments().isEmpty()) {
                     totalPaid = nextBillDto.getPayments().stream()
-                            .map(p -> p.getAmount() != null ? p.getAmount() : BigDecimal.ZERO)
-                            .reduce(BigDecimal.ZERO, BigDecimal::add);
-                }
-            } else {
-                // Para a fatura mais recente (sem fatura N+1), verifica se possui pagamentos diretos salvos
-                com.finance.pluggy.infrastructure.pluggy.dto.PluggyBillResponse currentBillDto = billDtos.get(i);
-                if (currentBillDto.getPayments() != null && !currentBillDto.getPayments().isEmpty()) {
-                    totalPaid = currentBillDto.getPayments().stream()
                             .map(p -> p.getAmount() != null ? p.getAmount() : BigDecimal.ZERO)
                             .reduce(BigDecimal.ZERO, BigDecimal::add);
                 }
             }
 
             BigDecimal totalAmount = invoice.getTotalAmount();
-            String status = "OPEN";
+            if (totalAmount != null && totalAmount.compareTo(BigDecimal.ZERO) > 0 && totalPaid.compareTo(totalAmount) >= 0) {
+                isPaid = true;
+            }
 
-            if (totalAmount != null && totalAmount.compareTo(BigDecimal.ZERO) > 0 
-                    && totalPaid.compareTo(totalAmount) >= 0) {
+            // 2. Match direto com transações de pagamento (CREDIT) na conta (resolve faturas fechadas sem fatura N+1 ainda gerada no Pluggy)
+            if (!isPaid && isPaidByTransaction(invoice, account)) {
+                isPaid = true;
+            }
+
+            String status = "OPEN";
+            if (isPaid) {
                 status = "PAID";
             } else if (invoice.getDueDate() != null && invoice.getDueDate().isBefore(now)) {
                 status = "OVERDUE";
@@ -251,6 +275,35 @@ public class SyncService {
             invoice.setStatus(status);
             invoiceRepository.save(invoice);
         }
+    }
+
+    private boolean isPaidByTransaction(com.finance.pluggy.domain.model.Invoice invoice, Account account) {
+        if (invoice.getTotalAmount() == null || invoice.getTotalAmount().compareTo(BigDecimal.ZERO) <= 0) {
+            return false;
+        }
+
+        List<Transaction> accountTxs = transactionRepository.findByAccountId(account.getId());
+        if (accountTxs == null || accountTxs.isEmpty()) {
+            return false;
+        }
+
+        LocalDate minDate = invoice.getCloseDate() != null
+                ? invoice.getCloseDate().minusDays(5)
+                : (invoice.getDueDate() != null ? invoice.getDueDate().minusDays(30) : null);
+
+        BigDecimal totalAmount = invoice.getTotalAmount();
+
+        for (Transaction tx : accountTxs) {
+            if (tx.getType() == com.finance.pluggy.domain.model.TransactionType.CREDIT && tx.getAmount() != null) {
+                BigDecimal txAmount = tx.getAmount().abs();
+                boolean dateMatches = minDate == null || (tx.getDate() != null && !tx.getDate().isBefore(minDate));
+
+                if (dateMatches && txAmount.subtract(totalAmount).abs().compareTo(new BigDecimal("0.05")) <= 0) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private boolean isCreditCard(Account acc) {

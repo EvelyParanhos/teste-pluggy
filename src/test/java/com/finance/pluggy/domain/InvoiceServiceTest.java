@@ -78,8 +78,8 @@ class InvoiceServiceTest {
     }
 
     @Test
-    @DisplayName("Deve selecionar a primeira fatura pendente (status != PAID) em ordem cronológica (dueDate ASC)")
-    void shouldSelectFirstUnpaidInvoiceInAscendingOrder() {
+    @DisplayName("Deve selecionar a primeira fatura pendente (status != PAID) como atual e omitir faturas passadas já pagas")
+    void shouldSelectFirstUnpaidInvoiceInAscendingOrderAndExcludePastPaidInvoices() {
         Account creditCard = Account.builder()
                 .id(1L)
                 .name("Cartão Itaú Gold")
@@ -94,6 +94,7 @@ class InvoiceServiceTest {
                 .id(10L)
                 .pluggyBillId("bill-1")
                 .account(creditCard)
+                .closeDate(LocalDate.of(2026, 8, 5))
                 .dueDate(LocalDate.of(2026, 8, 10))
                 .totalAmount(new BigDecimal("500.00"))
                 .status("PAID")
@@ -103,6 +104,7 @@ class InvoiceServiceTest {
                 .id(11L)
                 .pluggyBillId("bill-2")
                 .account(creditCard)
+                .closeDate(LocalDate.of(2026, 9, 5))
                 .dueDate(LocalDate.of(2026, 9, 10))
                 .totalAmount(new BigDecimal("1200.00"))
                 .status("OVERDUE")
@@ -112,6 +114,7 @@ class InvoiceServiceTest {
                 .id(12L)
                 .pluggyBillId("bill-3")
                 .account(creditCard)
+                .closeDate(LocalDate.of(2026, 10, 5))
                 .dueDate(LocalDate.of(2026, 10, 10))
                 .totalAmount(new BigDecimal("800.00"))
                 .status("OPEN")
@@ -123,7 +126,17 @@ class InvoiceServiceTest {
 
         List<InvoiceResponse> invoices = invoiceService.getInvoices();
 
-        assertThat(invoices).hasSize(3);
-        assertThat(invoices.stream().map(InvoiceResponse::getStatus)).containsExactly("OPEN", "OVERDUE", "PAID");
+        // A fatura paga do mês passado é omitida da lista exposta no endpoint
+        assertThat(invoices).hasSize(2);
+
+        // A fatura atual é a OVERDUE (primeira com status != PAID em ordem ASC)
+        InvoiceResponse currentInv = invoices.stream().filter(InvoiceResponse::isCurrent).findFirst().orElseThrow();
+        assertThat(currentInv.getBalanceDueDate()).isEqualTo(LocalDate.of(2026, 9, 10));
+        assertThat(currentInv.getStatus()).isEqualTo("OVERDUE");
+
+        // A fatura futura é a OPEN com dueDate posterior à atual
+        InvoiceResponse futureInv = invoices.stream().filter(inv -> !inv.isCurrent()).findFirst().orElseThrow();
+        assertThat(futureInv.getBalanceDueDate()).isEqualTo(LocalDate.of(2026, 10, 10));
+        assertThat(futureInv.getStatus()).isEqualTo("OPEN");
     }
 }

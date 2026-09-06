@@ -60,7 +60,7 @@ public class InvoiceService {
 
                     List<Transaction> accountTxs = transactionRepository.findByAccountId(acc.getId());
 
-                    // Retorna a lista completa de faturas (histórico, atual e futuras) em ordem decrescente de vencimento
+                    // Retorna apenas a fatura atual (isCurrent = true) e faturas futuras/projetadas
                     for (int idx = dbInvoices.size() - 1; idx >= 0; idx--) {
                         com.finance.pluggy.domain.model.Invoice inv = dbInvoices.get(idx);
                         int originalIndex = idx;
@@ -68,10 +68,19 @@ public class InvoiceService {
                                 ? dbInvoices.get(originalIndex - 1).getCloseDate()
                                 : null;
 
+                        boolean isCurrent = inv.getId() != null && inv.getId().equals(currentInvoice.getId());
+                        boolean isFuture = inv.getDueDate() != null && currentInvoice.getDueDate() != null
+                                ? inv.getDueDate().isAfter(currentInvoice.getDueDate())
+                                : (inv.getDueDate() != null && inv.getDueDate().isAfter(now));
+
+                        // Faturas passadas e já pagas são omitidas da lista exposta no endpoint /invoices
+                        if (!isCurrent && !isFuture) {
+                            continue;
+                        }
+
                         List<Transaction> invTxs = new ArrayList<>();
                         List<Transaction> futureTxs = new ArrayList<>();
                         BigDecimal futureBalance = BigDecimal.ZERO;
-                        boolean isCurrent = inv.getId() != null && inv.getId().equals(currentInvoice.getId());
 
                         for (Transaction tx : accountTxs) {
                             String txBillId = tx.getPluggyBillId();
