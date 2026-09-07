@@ -18,6 +18,8 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 import com.finance.pluggy.domain.model.TransactionType;
 
@@ -194,13 +196,28 @@ public class InvoiceService {
 
                     LocalDate lastPaymentDate = lastPaymentTx != null ? lastPaymentTx.getDate() : null;
 
-                    LocalDate closeDate = acc.getBalanceCloseDate() != null
-                            ? acc.getBalanceCloseDate()
-                            : now.withDayOfMonth(now.lengthOfMonth()).minusDays(5);
+                    int[] pattern = resolveCloseDueDayPattern(dbInvoices);
+
+                    LocalDate closeDate = acc.getBalanceCloseDate();
+                    if (closeDate == null) {
+                        if (pattern[0] > 0) {
+                            LocalDate targetMonth = now.getDayOfMonth() >= pattern[0] ? now : now.minusMonths(1);
+                            int safeDay = Math.min(pattern[0], targetMonth.lengthOfMonth());
+                            closeDate = targetMonth.withDayOfMonth(safeDay);
+                        } else {
+                            closeDate = now.withDayOfMonth(now.lengthOfMonth()).minusDays(5);
+                        }
+                    }
 
                     LocalDate dueDate = acc.getBalanceDueDate();
                     if (dueDate == null || !dueDate.isAfter(closeDate)) {
-                        dueDate = closeDate.plusDays(10);
+                        if (pattern[1] > 0) {
+                            LocalDate targetMonth = closeDate.getDayOfMonth() < pattern[1] ? closeDate : closeDate.plusMonths(1);
+                            int safeDay = Math.min(pattern[1], targetMonth.lengthOfMonth());
+                            dueDate = targetMonth.withDayOfMonth(safeDay);
+                        } else {
+                            dueDate = closeDate.plusDays(10);
+                        }
                     }
 
                     List<Transaction> currentTxs = new ArrayList<>();
@@ -329,6 +346,32 @@ public class InvoiceService {
         }
 
         return false;
+    }
+
+    private int[] resolveCloseDueDayPattern(List<com.finance.pluggy.domain.model.Invoice> historicalInvoices) {
+        if (historicalInvoices == null || historicalInvoices.isEmpty()) {
+            return new int[]{-1, -1};
+        }
+
+        Map<Integer, Long> closeDayFreq = historicalInvoices.stream()
+                .filter(inv -> inv.getCloseDate() != null)
+                .collect(Collectors.groupingBy(inv -> inv.getCloseDate().getDayOfMonth(), Collectors.counting()));
+
+        Map<Integer, Long> dueDayFreq = historicalInvoices.stream()
+                .filter(inv -> inv.getDueDate() != null)
+                .collect(Collectors.groupingBy(inv -> inv.getDueDate().getDayOfMonth(), Collectors.counting()));
+
+        int closeDay = closeDayFreq.entrySet().stream()
+                .max(Map.Entry.comparingByValue())
+                .map(Map.Entry::getKey)
+                .orElse(-1);
+
+        int dueDay = dueDayFreq.entrySet().stream()
+                .max(Map.Entry.comparingByValue())
+                .map(Map.Entry::getKey)
+                .orElse(-1);
+
+        return new int[]{closeDay, dueDay};
     }
 
     private boolean isCreditCard(Account acc) {

@@ -347,4 +347,55 @@ class InvoiceServiceTest {
         assertThat(response.isPendingSync()).isTrue();
         assertThat(response.isCurrent()).isTrue();
     }
+
+    @Test
+    @DisplayName("Deve resolver dia de fechamento e vencimento pela moda histórica de dbInvoices quando a conta tiver datas nulas")
+    void shouldResolveCloseAndDueDateFromHistoricalInvoicesModePatternWhenAccountDatesAreNull() {
+        LocalDate now = LocalDate.now();
+
+        Account creditCard = Account.builder()
+                .id(1L)
+                .name("Cartão Itaú Mode Test")
+                .number("5544")
+                .type(AccountType.CREDIT)
+                .subtype(AccountSubtype.CREDIT_CARD)
+                .balanceCloseDate(null)
+                .balanceDueDate(null)
+                .creditLimit(new BigDecimal("5000.00"))
+                .availableCreditLimit(new BigDecimal("4500.00"))
+                .build();
+
+        // Faturas históricas antigas no DB com fechamento dia 3 e vencimento dia 10 (todas > 32 dias atrás para forçar fallback)
+        com.finance.pluggy.domain.model.Invoice inv1 = com.finance.pluggy.domain.model.Invoice.builder()
+                .id(1L).pluggyBillId("bill-1").account(creditCard)
+                .closeDate(now.minusMonths(3).withDayOfMonth(3))
+                .dueDate(now.minusMonths(3).withDayOfMonth(10))
+                .build();
+
+        com.finance.pluggy.domain.model.Invoice inv2 = com.finance.pluggy.domain.model.Invoice.builder()
+                .id(2L).pluggyBillId("bill-2").account(creditCard)
+                .closeDate(now.minusMonths(2).withDayOfMonth(3))
+                .dueDate(now.minusMonths(2).withDayOfMonth(10))
+                .build();
+
+        com.finance.pluggy.domain.model.Invoice inv3 = com.finance.pluggy.domain.model.Invoice.builder()
+                .id(3L).pluggyBillId("bill-3").account(creditCard)
+                .closeDate(now.minusDays(40).withDayOfMonth(3))
+                .dueDate(now.minusDays(40).withDayOfMonth(10))
+                .build();
+
+        when(accountRepository.findAll()).thenReturn(List.of(creditCard));
+        when(invoiceRepository.findByAccountIdOrderByDueDateAsc(1L)).thenReturn(List.of(inv1, inv2, inv3));
+        when(transactionRepository.findByAccountId(1L)).thenReturn(Collections.emptyList());
+
+        List<InvoiceResponse> invoices = invoiceService.getInvoices();
+
+        assertThat(invoices).hasSize(1);
+        InvoiceResponse response = invoices.get(0);
+
+        assertThat(response.getBalanceCloseDate()).isNotNull();
+        assertThat(response.getBalanceCloseDate().getDayOfMonth()).isEqualTo(3);
+        assertThat(response.getBalanceDueDate()).isNotNull();
+        assertThat(response.getBalanceDueDate().getDayOfMonth()).isEqualTo(10);
+    }
 }
