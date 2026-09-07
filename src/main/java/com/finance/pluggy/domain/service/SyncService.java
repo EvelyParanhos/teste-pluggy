@@ -307,26 +307,91 @@ public class SyncService {
             return false;
         }
 
-        List<Transaction> accountTxs = transactionRepository.findByAccountId(account.getId());
-        if (accountTxs == null || accountTxs.isEmpty()) {
+        List<Account> itemAccounts = (account.getItem() != null && account.getItem().getId() != null)
+                ? accountRepository.findByItemId(account.getItem().getId())
+                : List.of(account);
+
+        List<Transaction> accountTxs = new ArrayList<>();
+        for (Account acc : itemAccounts) {
+            List<Transaction> txs = transactionRepository.findByAccountId(acc.getId());
+            if (txs != null) {
+                accountTxs.addAll(txs);
+            }
+        }
+
+        if (accountTxs.isEmpty()) {
             return false;
         }
 
-        for (Transaction tx : accountTxs) {
-            if (tx.getType() == com.finance.pluggy.domain.model.TransactionType.CREDIT && tx.getDate() != null && !tx.getDate().isBefore(minDate)) {
-                boolean isCategoryPayment = tx.getPluggyCategory() != null && tx.getPluggyCategory().equalsIgnoreCase("Credit card payment");
-                boolean isDescPayment = tx.getDescription() != null && (
-                        tx.getDescription().toLowerCase().contains("pagamento de fatura")
-                        || tx.getDescription().toLowerCase().contains("pagamento de cartão")
-                        || tx.getDescription().toLowerCase().contains("pagamento de cartao")
-                        || tx.getDescription().toLowerCase().contains("pagto fatura")
-                );
+        BigDecimal invoiceTotal = invoice.getTotalAmount();
 
-                if (isCategoryPayment || isDescPayment) {
-                    return true;
+        // 1. Tenta encontrar pagamento com valor correspondente no extrato
+        for (Transaction tx : accountTxs) {
+            if (tx.getDate() != null && !tx.getDate().isBefore(minDate)) {
+                if (isCreditCardPayment(tx)) {
+                    if (invoiceTotal != null && invoiceTotal.compareTo(BigDecimal.ZERO) > 0 && tx.getAmount() != null) {
+                        BigDecimal diff = tx.getAmount().abs().subtract(invoiceTotal).abs();
+                        if (diff.compareTo(new BigDecimal("0.05")) <= 0) {
+                            return true;
+                        }
+                    }
                 }
             }
         }
+
+        // 2. Se não houver totalAmount ou não bateu exato, qualquer transação de pagamento recente confirma a liquidação
+        for (Transaction tx : accountTxs) {
+            if (tx.getDate() != null && !tx.getDate().isBefore(minDate) && isCreditCardPayment(tx)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private boolean isCreditCardPayment(Transaction tx) {
+        if (tx == null) return false;
+
+        String category = tx.getPluggyCategory();
+        if (category != null && !category.isBlank()) {
+            String lowerCat = category.toLowerCase();
+            if (lowerCat.contains("credit card payment")
+                    || lowerCat.contains("credit_card_payment")
+                    || lowerCat.contains("pagamento de cartão")
+                    || lowerCat.contains("pagamento de cartao")
+                    || lowerCat.contains("pagamento fatura")) {
+                return true;
+            }
+        }
+
+        String desc = tx.getDescription();
+        if (desc != null && !desc.isBlank()) {
+            String lowerDesc = desc.toLowerCase();
+            if (lowerDesc.contains("pagamento de fatura")
+                    || lowerDesc.contains("pagamento fatura")
+                    || lowerDesc.contains("pagamento de cartao")
+                    || lowerDesc.contains("pagamento de cartão")
+                    || lowerDesc.contains("pagto fatura")
+                    || lowerDesc.contains("fatura paga")
+                    || lowerDesc.contains("pagamento efetuado")
+                    || lowerDesc.contains("pagamento recebido")) {
+                return true;
+            }
+        }
+
+        String rawDesc = tx.getRawDescription();
+        if (rawDesc != null && !rawDesc.isBlank()) {
+            String lowerRaw = rawDesc.toLowerCase();
+            if (lowerRaw.contains("pagamento de fatura")
+                    || lowerRaw.contains("pagamento fatura")
+                    || lowerRaw.contains("pagamento de cartao")
+                    || lowerRaw.contains("pagamento de cartão")
+                    || lowerRaw.contains("pagto fatura")
+                    || lowerRaw.contains("fatura paga")) {
+                return true;
+            }
+        }
+
         return false;
     }
 

@@ -273,4 +273,78 @@ class InvoiceServiceTest {
         assertThat(response.isPendingSync()).isTrue();
         assertThat(response.isCurrent()).isTrue();
     }
+
+    @Test
+    @DisplayName("Deve derivar fatura atual pelo extrato usando pagamento de fatura localizado em conta corrente irmã do mesmo Item")
+    void shouldDeriveCurrentInvoiceFromStatementTransactionsUsingLastPaymentInSiblingCheckingAccount() {
+        LocalDate closeDate = LocalDate.of(2026, 9, 3);
+        LocalDate dueDate = LocalDate.of(2026, 9, 10);
+
+        com.finance.pluggy.domain.model.Item itemEntity = com.finance.pluggy.domain.model.Item.builder()
+                .id(10L)
+                .pluggyItemId("item-itau-cross")
+                .build();
+
+        Account creditCard = Account.builder()
+                .id(2L)
+                .name("Cartão Itaú Uniclass")
+                .number("9988")
+                .type(AccountType.CREDIT)
+                .subtype(AccountSubtype.CREDIT_CARD)
+                .creditLimit(new BigDecimal("5000.00"))
+                .availableCreditLimit(new BigDecimal("4597.48"))
+                .balanceCloseDate(closeDate)
+                .balanceDueDate(dueDate)
+                .item(itemEntity)
+                .build();
+
+        Account checkingAccount = Account.builder()
+                .id(1L)
+                .name("Conta Corrente Itaú")
+                .type(AccountType.BANK)
+                .subtype(AccountSubtype.CHECKING_ACCOUNT)
+                .item(itemEntity)
+                .build();
+
+        // Transação de pagamento na CONTA CORRENTE (id 1) em 15/08 (referente à fatura anterior de 503.13)
+        com.finance.pluggy.domain.model.Transaction checkingPaymentTx = com.finance.pluggy.domain.model.Transaction.builder()
+                .id(32L)
+                .pluggyTransactionId("tx-chk-pay-aug")
+                .account(checkingAccount)
+                .pluggyCategory("Credit card payment")
+                .description("Pagamento de fatura ... FATURA PAGA")
+                .type(com.finance.pluggy.domain.model.TransactionType.DEBIT)
+                .amount(new BigDecimal("-503.13"))
+                .date(LocalDate.of(2026, 8, 15))
+                .build();
+
+        // Transação da fatura atual no cartão (id 2) pós-pagamento (25/08)
+        com.finance.pluggy.domain.model.Transaction ccTx1 = com.finance.pluggy.domain.model.Transaction.builder()
+                .id(101L)
+                .pluggyTransactionId("tx-cc-current-1")
+                .account(creditCard)
+                .description("Restaurante")
+                .type(com.finance.pluggy.domain.model.TransactionType.DEBIT)
+                .amount(new BigDecimal("402.52"))
+                .date(LocalDate.of(2026, 8, 25))
+                .build();
+
+        when(accountRepository.findAll()).thenReturn(List.of(creditCard));
+        when(invoiceRepository.findByAccountIdOrderByDueDateAsc(2L)).thenReturn(Collections.emptyList());
+        when(accountRepository.findByItemId(10L)).thenReturn(List.of(checkingAccount, creditCard));
+        when(transactionRepository.findByAccountId(1L)).thenReturn(List.of(checkingPaymentTx));
+        when(transactionRepository.findByAccountId(2L)).thenReturn(List.of(ccTx1));
+
+        List<InvoiceResponse> invoices = invoiceService.getInvoices();
+
+        assertThat(invoices).hasSize(1);
+        InvoiceResponse response = invoices.get(0);
+
+        assertThat(response.getAccountName()).isEqualTo("Cartão Itaú Uniclass");
+        assertThat(response.getCurrentBalance()).isEqualByComparingTo("402.52");
+        assertThat(response.getTransactionCount()).isEqualTo(1);
+        assertThat(response.getTransactions()).containsExactly(ccTx1);
+        assertThat(response.isPendingSync()).isTrue();
+        assertThat(response.isCurrent()).isTrue();
+    }
 }

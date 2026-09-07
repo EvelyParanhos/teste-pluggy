@@ -174,8 +174,20 @@ public class InvoiceService {
                     // Fallback por extrato para contas sem faturas salvas ou conectores sem GET /bills confiável (ex: Itaú)
                     List<Transaction> accountTxs = transactionRepository.findByAccountId(acc.getId());
 
-                    // Identifica a transação de pagamento de fatura mais recente no extrato
-                    Transaction lastPaymentTx = accountTxs.stream()
+                    List<Account> itemAccounts = (acc.getItem() != null && acc.getItem().getId() != null)
+                            ? accountRepository.findByItemId(acc.getItem().getId())
+                            : List.of(acc);
+
+                    List<Transaction> itemTxs = new ArrayList<>();
+                    for (Account itemAcc : itemAccounts) {
+                        List<Transaction> txs = transactionRepository.findByAccountId(itemAcc.getId());
+                        if (txs != null) {
+                            itemTxs.addAll(txs);
+                        }
+                    }
+
+                    // Identifica a transação de pagamento de fatura mais recente no extrato (em todas as contas do mesmo item)
+                    Transaction lastPaymentTx = itemTxs.stream()
                             .filter(this::isCreditCardPayment)
                             .max(Comparator.comparing(Transaction::getDate, Comparator.nullsFirst(Comparator.naturalOrder())))
                             .orElse(null);
@@ -296,6 +308,7 @@ public class InvoiceService {
                     || lowerDesc.contains("pagamento de cartao")
                     || lowerDesc.contains("pagamento de cartão")
                     || lowerDesc.contains("pagto fatura")
+                    || lowerDesc.contains("fatura paga")
                     || lowerDesc.contains("pagamento efetuado")
                     || lowerDesc.contains("pagamento recebido")) {
                 return true;
@@ -309,7 +322,8 @@ public class InvoiceService {
                     || lowerRaw.contains("pagamento fatura")
                     || lowerRaw.contains("pagamento de cartao")
                     || lowerRaw.contains("pagamento de cartão")
-                    || lowerRaw.contains("pagto fatura")) {
+                    || lowerRaw.contains("pagto fatura")
+                    || lowerRaw.contains("fatura paga")) {
                 return true;
             }
         }

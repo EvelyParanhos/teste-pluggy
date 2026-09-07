@@ -312,7 +312,93 @@ class SyncServiceTest {
 
         when(pluggyDomainMapper.toInvoiceEntity(eq(billDto), any(), any())).thenReturn(invoiceEntity);
         when(invoiceRepository.findByAccountIdOrderByDueDateAsc(2L)).thenReturn(List.of(invoiceEntity));
+        when(accountRepository.findByItemId(1L)).thenReturn(List.of(accountEntity));
         when(transactionRepository.findByAccountId(2L)).thenReturn(List.of(paymentTx));
+
+        when(invoiceRepository.save(any(Invoice.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        syncService.syncItem(itemId);
+
+        ArgumentCaptor<Invoice> invoiceCaptor = ArgumentCaptor.forClass(Invoice.class);
+        verify(invoiceRepository, atLeastOnce()).save(invoiceCaptor.capture());
+
+        List<Invoice> savedInvoices = invoiceCaptor.getAllValues();
+        Invoice finalInvoice = savedInvoices.get(savedInvoices.size() - 1);
+        assertThat(finalInvoice.getStatus()).isEqualTo("PAID");
+    }
+
+    @Test
+    @DisplayName("Deve reconciliar status de fatura de cartão como PAID ao encontrar pagamento de fatura em conta corrente irmã do mesmo Item")
+    void shouldReconcileInvoiceStatusUsingCrossAccountPaymentInCheckingAccount() {
+        String itemId = "item-itau-1";
+        String ccAccountId = "acc-cc-itau";
+        String checkingAccountId = "acc-chk-itau";
+
+        PluggyItemResponse itemDto = PluggyItemResponse.builder().id(itemId).status("UPDATED").build();
+        PluggyAccountResponse ccAccountDto = PluggyAccountResponse.builder()
+                .id(ccAccountId).itemId(itemId).type("CREDIT").subtype("CREDIT_CARD").build();
+        PluggyAccountResponse chkAccountDto = PluggyAccountResponse.builder()
+                .id(checkingAccountId).itemId(itemId).type("BANK").subtype("CHECKING_ACCOUNT").build();
+
+        PluggyPageResponse<PluggyAccountResponse> accountsPage = PluggyPageResponse.<PluggyAccountResponse>builder()
+                .results(List.of(ccAccountDto, chkAccountDto)).build();
+
+        PluggyBillResponse billDto = PluggyBillResponse.builder()
+                .id("bill-august")
+                .dueDate("2026-08-10")
+                .totalAmount(new BigDecimal("503.13"))
+                .payments(Collections.emptyList())
+                .build();
+
+        PluggyPageResponse<PluggyBillResponse> billsPage = PluggyPageResponse.<PluggyBillResponse>builder()
+                .results(List.of(billDto)).build();
+
+        Item itemEntity = Item.builder().id(10L).pluggyItemId(itemId).build();
+        Account ccAccountEntity = Account.builder()
+                .id(2L).pluggyAccountId(ccAccountId).type(AccountType.CREDIT).subtype(AccountSubtype.CREDIT_CARD).item(itemEntity).build();
+        Account chkAccountEntity = Account.builder()
+                .id(1L).pluggyAccountId(checkingAccountId).type(AccountType.BANK).subtype(AccountSubtype.CHECKING_ACCOUNT).item(itemEntity).build();
+
+        Invoice invoiceEntity = Invoice.builder()
+                .id(200L)
+                .pluggyBillId("bill-august")
+                .account(ccAccountEntity)
+                .closeDate(LocalDate.of(2026, 8, 3))
+                .dueDate(LocalDate.of(2026, 8, 10))
+                .totalAmount(new BigDecimal("503.13"))
+                .status("OVERDUE")
+                .build();
+
+        // Lançamento de pagamento da fatura localizado na CONTA CORRENTE (id 1)
+        Transaction checkingPaymentTx = Transaction.builder()
+                .id(32L)
+                .pluggyTransactionId("tx-chk-pay-1")
+                .account(chkAccountEntity)
+                .type(TransactionType.DEBIT)
+                .pluggyCategory("Credit card payment")
+                .description("Pagamento de fatura ... FATURA PAGA")
+                .amount(new BigDecimal("-503.13"))
+                .date(LocalDate.of(2026, 8, 15))
+                .build();
+
+        when(pluggyClient.getItem(itemId)).thenReturn(itemDto);
+        when(pluggyClient.getAccounts(itemId)).thenReturn(accountsPage);
+        when(pluggyClient.getBills(ccAccountId)).thenReturn(billsPage);
+        when(pluggyClient.getTransactions(any(), any(), any(), any()))
+                .thenReturn(PluggyPageResponse.<PluggyTransactionResponse>builder().results(Collections.emptyList()).build());
+
+        when(pluggyDomainMapper.toItemEntity(any(), any())).thenReturn(itemEntity);
+        when(pluggyDomainMapper.toAccountEntity(eq(ccAccountDto), any(), any())).thenReturn(ccAccountEntity);
+        when(pluggyDomainMapper.toAccountEntity(eq(chkAccountDto), any(), any())).thenReturn(chkAccountEntity);
+        when(itemRepository.save(any(Item.class))).thenReturn(itemEntity);
+        when(accountRepository.save(ccAccountEntity)).thenReturn(ccAccountEntity);
+        when(accountRepository.save(chkAccountEntity)).thenReturn(chkAccountEntity);
+
+        when(pluggyDomainMapper.toInvoiceEntity(eq(billDto), any(), any())).thenReturn(invoiceEntity);
+        when(invoiceRepository.findByAccountIdOrderByDueDateAsc(2L)).thenReturn(List.of(invoiceEntity));
+        when(accountRepository.findByItemId(10L)).thenReturn(List.of(chkAccountEntity, ccAccountEntity));
+        when(transactionRepository.findByAccountId(1L)).thenReturn(List.of(checkingPaymentTx));
+        when(transactionRepository.findByAccountId(2L)).thenReturn(Collections.emptyList());
 
         when(invoiceRepository.save(any(Invoice.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -397,6 +483,7 @@ class SyncServiceTest {
 
         when(pluggyDomainMapper.toInvoiceEntity(eq(billDto), any(), any())).thenReturn(invoiceEntity);
         when(invoiceRepository.findByAccountIdOrderByDueDateAsc(3L)).thenReturn(List.of(invoiceEntity));
+        when(accountRepository.findByItemId(1L)).thenReturn(List.of(accountEntity));
         when(transactionRepository.findByAccountId(3L)).thenReturn(List.of(refundTx));
 
         when(invoiceRepository.save(any(Invoice.class))).thenAnswer(invocation -> invocation.getArgument(0));
