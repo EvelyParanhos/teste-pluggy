@@ -398,4 +398,59 @@ class InvoiceServiceTest {
         assertThat(response.getBalanceDueDate()).isNotNull();
         assertThat(response.getBalanceDueDate().getDayOfMonth()).isEqualTo(10);
     }
+
+    @Test
+    @DisplayName("Deve excluir transações de parcelamento (NN/NN) datadas entre o fechamento e vencimento anterior")
+    void shouldExcludeInstallmentTransactionsBelongingToPreviousCycle() {
+        LocalDate closeDate = LocalDate.of(2026, 9, 3);
+        LocalDate dueDate = LocalDate.of(2026, 9, 10);
+
+        Account creditCard = Account.builder()
+                .id(1L)
+                .name("Cartão Itaú Installment Test")
+                .number("9988")
+                .type(AccountType.CREDIT)
+                .subtype(AccountSubtype.CREDIT_CARD)
+                .creditLimit(new BigDecimal("5000.00"))
+                .availableCreditLimit(new BigDecimal("4874.23"))
+                .balanceCloseDate(closeDate)
+                .balanceDueDate(dueDate)
+                .build();
+
+        // Lançamento de parcela (03/03) lançado em 10/08 (no vencimento do ciclo anterior 03/08 - 10/08)
+        com.finance.pluggy.domain.model.Transaction instTx = com.finance.pluggy.domain.model.Transaction.builder()
+                .id(100L)
+                .pluggyTransactionId("tx-inst-1")
+                .account(creditCard)
+                .description("Magazineluiza 03/03")
+                .type(com.finance.pluggy.domain.model.TransactionType.DEBIT)
+                .amount(new BigDecimal("139.88"))
+                .date(LocalDate.of(2026, 8, 10))
+                .build();
+
+        // Transação legítima do ciclo atual (25/08)
+        com.finance.pluggy.domain.model.Transaction currTx = com.finance.pluggy.domain.model.Transaction.builder()
+                .id(101L)
+                .pluggyTransactionId("tx-curr-1")
+                .account(creditCard)
+                .description("Restaurante")
+                .type(com.finance.pluggy.domain.model.TransactionType.DEBIT)
+                .amount(new BigDecimal("125.77"))
+                .date(LocalDate.of(2026, 8, 25))
+                .build();
+
+        when(accountRepository.findAll()).thenReturn(List.of(creditCard));
+        when(invoiceRepository.findByAccountIdOrderByDueDateAsc(1L)).thenReturn(Collections.emptyList());
+        when(transactionRepository.findByAccountId(1L)).thenReturn(List.of(instTx, currTx));
+
+        List<InvoiceResponse> invoices = invoiceService.getInvoices();
+
+        assertThat(invoices).hasSize(1);
+        InvoiceResponse response = invoices.get(0);
+
+        // A parcela de R$ 139,88 lançada em 10/08 com marcador 03/03 deve ser excluída da fatura atual
+        assertThat(response.getCurrentBalance()).isEqualByComparingTo("125.77");
+        assertThat(response.getTransactionCount()).isEqualTo(1);
+        assertThat(response.getTransactions()).containsExactly(currTx);
+    }
 }

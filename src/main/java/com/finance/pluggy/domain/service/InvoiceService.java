@@ -19,6 +19,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import com.finance.pluggy.domain.model.TransactionType;
@@ -220,6 +221,15 @@ public class InvoiceService {
                         }
                     }
 
+                    LocalDate previousCloseDate = closeDate.minusMonths(1);
+                    LocalDate previousDueDate = (lastPaymentDate != null && lastPaymentDate.isAfter(previousCloseDate) && !lastPaymentDate.isAfter(closeDate))
+                            ? lastPaymentDate
+                            : (pattern[1] > 0 ? previousCloseDate.withDayOfMonth(Math.min(pattern[1], previousCloseDate.lengthOfMonth())) : previousCloseDate.plusDays(10));
+
+                    if (!previousDueDate.isAfter(previousCloseDate)) {
+                        previousDueDate = previousDueDate.plusMonths(1);
+                    }
+
                     List<Transaction> currentTxs = new ArrayList<>();
                     List<Transaction> futureTxs = new ArrayList<>();
                     BigDecimal currentBalance = BigDecimal.ZERO;
@@ -228,6 +238,11 @@ public class InvoiceService {
                     for (Transaction tx : accountTxs) {
                         if (lastPaymentTx != null && tx.getId() != null && tx.getId().equals(lastPaymentTx.getId())) {
                             // Exclui o lançamento do próprio pagamento da soma da fatura atual
+                            continue;
+                        }
+
+                        if (belongsToPreviousCycle(tx, previousCloseDate, previousDueDate)) {
+                            // Transações de parcela (NN/NN) lançadas entre o fechamento e o vencimento do ciclo anterior pertencem à fatura anterior
                             continue;
                         }
 
@@ -372,6 +387,21 @@ public class InvoiceService {
                 .orElse(-1);
 
         return new int[]{closeDay, dueDay};
+    }
+
+    private static final Pattern INSTALLMENT_PATTERN = Pattern.compile("(\\d{2})/(\\d{2})\\s*$");
+
+    private boolean belongsToPreviousCycle(Transaction tx, LocalDate previousCloseDate, LocalDate previousDueDate) {
+        if (tx == null || tx.getDate() == null || previousCloseDate == null || previousDueDate == null) {
+            return false;
+        }
+        String desc = tx.getDescription() != null && !tx.getDescription().isBlank()
+                ? tx.getDescription()
+                : (tx.getRawDescription() != null ? tx.getRawDescription() : "");
+        boolean isInstallment = INSTALLMENT_PATTERN.matcher(desc.trim()).find();
+        return isInstallment
+                && tx.getDate().isAfter(previousCloseDate)
+                && !tx.getDate().isAfter(previousDueDate);
     }
 
     private boolean isCreditCard(Account acc) {
