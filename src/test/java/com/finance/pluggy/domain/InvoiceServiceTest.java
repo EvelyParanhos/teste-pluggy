@@ -453,4 +453,53 @@ class InvoiceServiceTest {
         assertThat(response.getTransactionCount()).isEqualTo(1);
         assertThat(response.getTransactions()).containsExactly(currTx);
     }
+
+    @Test
+    @DisplayName("Deve derivar fechamento por gap e ajustar vencimento em feriado/fim de semana quando o vencimento da conta muda")
+    void shouldCalculateCloseAndDueDateUsingGapAndAdjustForWeekendOrHolidayWhenDueDateChanges() {
+        LocalDate now = LocalDate.now();
+
+        // O usuário mudou a data de vencimento no banco para dia 07/09 (7 de setembro - feriado da Independência)
+        LocalDate rawDueDate = LocalDate.of(2026, 9, 7);
+
+        Account creditCard = Account.builder()
+                .id(1L)
+                .name("Cartão Itaú Gap Test")
+                .number("5544")
+                .type(AccountType.CREDIT)
+                .subtype(AccountSubtype.CREDIT_CARD)
+                .balanceCloseDate(null)
+                .balanceDueDate(rawDueDate)
+                .creditLimit(new BigDecimal("5000.00"))
+                .availableCreditLimit(new BigDecimal("4500.00"))
+                .build();
+
+        // Faturas históricas no DB que mostram um gap histórico de 7 dias (close 3rd, due 10th -> gap 7)
+        com.finance.pluggy.domain.model.Invoice inv1 = com.finance.pluggy.domain.model.Invoice.builder()
+                .id(1L).pluggyBillId("bill-1").account(creditCard)
+                .closeDate(now.minusMonths(3).withDayOfMonth(3))
+                .dueDate(now.minusMonths(3).withDayOfMonth(10))
+                .build();
+
+        com.finance.pluggy.domain.model.Invoice inv2 = com.finance.pluggy.domain.model.Invoice.builder()
+                .id(2L).pluggyBillId("bill-2").account(creditCard)
+                .closeDate(now.minusMonths(2).withDayOfMonth(3))
+                .dueDate(now.minusMonths(2).withDayOfMonth(10))
+                .build();
+
+        when(accountRepository.findAll()).thenReturn(List.of(creditCard));
+        when(invoiceRepository.findByAccountIdOrderByDueDateAsc(1L)).thenReturn(List.of(inv1, inv2));
+        when(transactionRepository.findByAccountId(1L)).thenReturn(Collections.emptyList());
+
+        List<InvoiceResponse> invoices = invoiceService.getInvoices();
+
+        assertThat(invoices).hasSize(1);
+        InvoiceResponse response = invoices.get(0);
+
+        // Gap é de 7 dias: 07/09/2026 - 7 dias = 31/08/2026
+        assertThat(response.getBalanceCloseDate()).isEqualTo(LocalDate.of(2026, 8, 31));
+
+        // Vencimento original 07/09/2026 é feriado da Independência, portanto avança para 08/09/2026 (Terça-feira)
+        assertThat(response.getBalanceDueDate()).isEqualTo(LocalDate.of(2026, 9, 8));
+    }
 }

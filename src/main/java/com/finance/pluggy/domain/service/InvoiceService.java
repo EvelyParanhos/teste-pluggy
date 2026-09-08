@@ -197,36 +197,41 @@ public class InvoiceService {
 
                     LocalDate lastPaymentDate = lastPaymentTx != null ? lastPaymentTx.getDate() : null;
 
-                    int[] pattern = resolveCloseDueDayPattern(dbInvoices);
+                    int gapDays = resolveCloseDueGapDays(dbInvoices);
+
+                    LocalDate rawDueDate = acc.getBalanceDueDate();
+                    if (rawDueDate == null && dbInvoices != null && !dbInvoices.isEmpty()) {
+                        Integer histDueDay = dbInvoices.stream()
+                                .filter(inv -> inv.getDueDate() != null)
+                                .collect(Collectors.groupingBy(inv -> inv.getDueDate().getDayOfMonth(), Collectors.counting()))
+                                .entrySet().stream()
+                                .max(Map.Entry.comparingByValue())
+                                .map(Map.Entry::getKey)
+                                .orElse(null);
+                        if (histDueDay != null) {
+                            LocalDate targetMonth = now.getDayOfMonth() <= histDueDay ? now : now.plusMonths(1);
+                            int safeDay = Math.min(histDueDay, targetMonth.lengthOfMonth());
+                            rawDueDate = targetMonth.withDayOfMonth(safeDay);
+                        }
+                    }
+
+                    if (rawDueDate == null) {
+                        rawDueDate = now.plusDays(10);
+                    }
 
                     LocalDate closeDate = acc.getBalanceCloseDate();
                     if (closeDate == null) {
-                        if (pattern[0] > 0) {
-                            LocalDate targetMonth = now.getDayOfMonth() >= pattern[0] ? now : now.minusMonths(1);
-                            int safeDay = Math.min(pattern[0], targetMonth.lengthOfMonth());
-                            closeDate = targetMonth.withDayOfMonth(safeDay);
-                        } else {
-                            closeDate = now.withDayOfMonth(now.lengthOfMonth()).minusDays(5);
-                        }
+                        closeDate = rawDueDate.minusDays(gapDays);
                     }
 
-                    LocalDate dueDate = acc.getBalanceDueDate();
-                    if (dueDate == null || !dueDate.isAfter(closeDate)) {
-                        if (pattern[1] > 0) {
-                            LocalDate targetMonth = closeDate.getDayOfMonth() < pattern[1] ? closeDate : closeDate.plusMonths(1);
-                            int safeDay = Math.min(pattern[1], targetMonth.lengthOfMonth());
-                            dueDate = targetMonth.withDayOfMonth(safeDay);
-                        } else {
-                            dueDate = closeDate.plusDays(10);
-                        }
-                    }
+                    LocalDate dueDate = adjustForWeekendAndHoliday(rawDueDate);
 
                     LocalDate previousCloseDate = closeDate.minusMonths(1);
                     LocalDate previousDueDate = (lastPaymentDate != null && lastPaymentDate.isAfter(previousCloseDate) && !lastPaymentDate.isAfter(closeDate))
                             ? lastPaymentDate
-                            : (pattern[1] > 0 ? previousCloseDate.withDayOfMonth(Math.min(pattern[1], previousCloseDate.lengthOfMonth())) : previousCloseDate.plusDays(10));
+                            : adjustForWeekendAndHoliday(rawDueDate.minusMonths(1));
 
-                    if (!previousDueDate.isAfter(previousCloseDate)) {
+                    if (previousDueDate != null && !previousDueDate.isAfter(previousCloseDate)) {
                         previousDueDate = previousDueDate.plusMonths(1);
                     }
 
@@ -363,30 +368,45 @@ public class InvoiceService {
         return false;
     }
 
-    private int[] resolveCloseDueDayPattern(List<com.finance.pluggy.domain.model.Invoice> historicalInvoices) {
+    private int resolveCloseDueGapDays(List<com.finance.pluggy.domain.model.Invoice> historicalInvoices) {
         if (historicalInvoices == null || historicalInvoices.isEmpty()) {
-            return new int[]{-1, -1};
+            return 7;
         }
 
-        Map<Integer, Long> closeDayFreq = historicalInvoices.stream()
-                .filter(inv -> inv.getCloseDate() != null)
-                .collect(Collectors.groupingBy(inv -> inv.getCloseDate().getDayOfMonth(), Collectors.counting()));
+        Map<Long, Long> gapFreq = historicalInvoices.stream()
+                .filter(inv -> inv.getCloseDate() != null && inv.getDueDate() != null)
+                .map(inv -> java.time.temporal.ChronoUnit.DAYS.between(inv.getCloseDate(), inv.getDueDate()))
+                .filter(gap -> gap > 0)
+                .collect(Collectors.groupingBy(g -> g, Collectors.counting()));
 
-        Map<Integer, Long> dueDayFreq = historicalInvoices.stream()
-                .filter(inv -> inv.getDueDate() != null)
-                .collect(Collectors.groupingBy(inv -> inv.getDueDate().getDayOfMonth(), Collectors.counting()));
-
-        int closeDay = closeDayFreq.entrySet().stream()
+        return gapFreq.entrySet().stream()
                 .max(Map.Entry.comparingByValue())
-                .map(Map.Entry::getKey)
-                .orElse(-1);
+                .map(e -> e.getKey().intValue())
+                .orElse(7);
+    }
 
-        int dueDay = dueDayFreq.entrySet().stream()
-                .max(Map.Entry.comparingByValue())
-                .map(Map.Entry::getKey)
-                .orElse(-1);
+    private boolean isNationalHoliday(LocalDate date) {
+        if (date == null) return false;
+        int month = date.getMonthValue();
+        int day = date.getDayOfMonth();
+        return (month == 1 && day == 1)
+                || (month == 4 && day == 21)
+                || (month == 5 && day == 1)
+                || (month == 9 && day == 7)
+                || (month == 10 && day == 12)
+                || (month == 11 && day == 2)
+                || (month == 11 && day == 15)
+                || (month == 12 && day == 25);
+    }
 
-        return new int[]{closeDay, dueDay};
+    private LocalDate adjustForWeekendAndHoliday(LocalDate date) {
+        if (date == null) return null;
+        while (date.getDayOfWeek() == java.time.DayOfWeek.SATURDAY
+                || date.getDayOfWeek() == java.time.DayOfWeek.SUNDAY
+                || isNationalHoliday(date)) {
+            date = date.plusDays(1);
+        }
+        return date;
     }
 
     private static final Pattern INSTALLMENT_PATTERN = Pattern.compile("(\\d{2})/(\\d{2})\\s*$");
