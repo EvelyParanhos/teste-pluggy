@@ -6,6 +6,7 @@ import com.finance.pluggy.domain.model.AccountType;
 import com.finance.pluggy.domain.model.Transaction;
 import com.finance.pluggy.domain.repository.AccountRepository;
 import com.finance.pluggy.domain.repository.TransactionRepository;
+import com.finance.pluggy.infrastructure.rest.dto.InvoiceHistoryItem;
 import com.finance.pluggy.infrastructure.rest.dto.InvoiceResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -67,15 +68,13 @@ public class InvoiceService {
                             && java.time.temporal.ChronoUnit.DAYS.between(maxBillDate, now) <= 32;
                 }
 
-                if (hasReliableBills) {
-                    // Seleciona a fatura atual de forma determinística por data (a fatura fechada mais recente: closeDate <= agora)
-                    com.finance.pluggy.domain.model.Invoice currentInvoice = dbInvoices.stream()
-                            .filter(inv -> inv.getCloseDate() != null && !inv.getCloseDate().isAfter(now))
-                            .max(Comparator.comparing(com.finance.pluggy.domain.model.Invoice::getCloseDate))
-                            .orElseGet(() -> dbInvoices.stream()
-                                    .filter(inv -> inv.getDueDate() != null && !inv.getDueDate().isAfter(now))
-                                    .max(Comparator.comparing(com.finance.pluggy.domain.model.Invoice::getDueDate))
-                                    .orElse(dbInvoices.get(0)));
+                java.util.Optional<com.finance.pluggy.domain.model.Invoice> unpaidCurrent = dbInvoices.stream()
+                        .filter(inv -> !"PAID".equalsIgnoreCase(inv.getStatus()))
+                        .filter(inv -> inv.getCloseDate() != null && !inv.getCloseDate().isAfter(now))
+                        .max(Comparator.comparing(com.finance.pluggy.domain.model.Invoice::getCloseDate));
+
+                if (hasReliableBills && unpaidCurrent.isPresent()) {
+                    com.finance.pluggy.domain.model.Invoice currentInvoice = unpaidCurrent.get();
 
                     List<Transaction> accountTxs = transactionRepository.findByAccountId(acc.getId());
 
@@ -320,6 +319,76 @@ public class InvoiceService {
         }
 
         return invoices;
+    }
+
+    /**
+     * Retorna o histórico completo de faturas para uma determinada conta de cartão de crédito.
+     */
+    @Transactional(readOnly = true)
+    public List<InvoiceHistoryItem> getInvoiceHistory(Long accountId) {
+        List<com.finance.pluggy.domain.model.Invoice> dbInvoices =
+                invoiceRepository.findByAccountIdOrderByDueDateAsc(accountId);
+
+        if (dbInvoices == null || dbInvoices.isEmpty()) {
+            return List.of();
+        }
+
+        List<Transaction> accountTxs = transactionRepository.findByAccountId(accountId);
+        List<InvoiceHistoryItem> history = new ArrayList<>();
+
+        for (int i = 0; i < dbInvoices.size(); i++) {
+            com.finance.pluggy.domain.model.Invoice inv = dbInvoices.get(i);
+            LocalDate prevCloseDate = (i > 0) ? dbInvoices.get(i - 1).getCloseDate() : null;
+
+            List<Transaction> invTxs = new ArrayList<>();
+            for (Transaction tx : accountTxs) {
+                String txBillId = tx.getPluggyBillId();
+                LocalDate txDate = tx.getDate();
+
+                if (txBillId != null && !txBillId.isBlank()) {
+                    if (txBillId.equals(inv.getPluggyBillId())) {
+                        invTxs.add(tx);
+                    }
+                } else {
+                    if (inv.getCloseDate() != null && txDate != null) {
+                        if (prevCloseDate != null) {
+                            if (txDate.isAfter(prevCloseDate) && !txDate.isAfter(inv.getCloseDate())) {
+                                invTxs.add(tx);
+                            }
+                        } else {
+                            if (!txDate.isAfter(inv.getCloseDate())) {
+                                invTxs.add(tx);
+                            }
+                        }
+                    }
+                }
+            }
+
+            BigDecimal total = inv.getTotalAmount() != null
+                    ? inv.getTotalAmount()
+                    : (inv.getTotalBalance() != null ? inv.getTotalBalance() : BigDecimal.ZERO);
+
+            history.add(InvoiceHistoryItem.builder()
+                    .id(inv.getId())
+                    .closeDate(inv.getCloseDate())
+                    .dueDate(inv.getDueDate())
+                    .status(inv.getStatus() != null ? inv.getStatus() : "OPEN")
+                    .totalAmount(total)
+                    .minimumPaymentAmount(inv.getMinimumPaymentAmount())
+                    .transactions(invTxs)
+                    .build());
+        }
+
+        history.sort((a, b) -> {
+            LocalDate dateA = a.getCloseDate() != null ? a.getCloseDate() : a.getDueDate();
+            LocalDate dateB = b.getCloseDate() != null ? b.getCloseDate() : b.getDueDate();
+            if (dateA == null && dateB == null) return 0;
+            if (dateA == null) return 1;
+            if (dateB == null) return -1;
+            return dateB.compareTo(dateA);
+        });
+
+        return history;
     }
 
     private boolean isCreditCardPayment(Transaction tx) {

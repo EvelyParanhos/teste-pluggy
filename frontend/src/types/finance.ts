@@ -151,6 +151,16 @@ export interface Invoice {
   isCurrent?: boolean;
 }
 
+export interface InvoiceHistoryItem {
+  id: number;
+  closeDate: string;
+  dueDate: string;
+  status: 'PAID' | 'OVERDUE' | 'OPEN' | 'CLOSED';
+  totalAmount: number;
+  minimumPaymentAmount?: number;
+  transactions: Transaction[];
+}
+
 export interface SyncLog {
   id: number;
   pluggyItemId: string;

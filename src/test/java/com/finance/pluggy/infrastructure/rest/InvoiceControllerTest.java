@@ -53,4 +53,26 @@ class InvoiceControllerTest {
                 .andExpect(jsonPath("$[0].creditLimit").value(6000.00))
                 .andExpect(jsonPath("$[0].status").value("OPEN"));
     }
+
+    @Test
+    @DisplayName("Deve consultar histórico de faturas via GET /api/v1/invoices/{accountId}/history")
+    void shouldGetInvoiceHistory() throws Exception {
+        com.finance.pluggy.infrastructure.rest.dto.InvoiceHistoryItem historyItem =
+                com.finance.pluggy.infrastructure.rest.dto.InvoiceHistoryItem.builder()
+                        .id(10L)
+                        .closeDate(LocalDate.of(2026, 8, 28))
+                        .dueDate(LocalDate.of(2026, 9, 5))
+                        .status("PAID")
+                        .totalAmount(new BigDecimal("1500.00"))
+                        .transactions(List.of())
+                        .build();
+
+        when(invoiceService.getInvoiceHistory(1L)).thenReturn(List.of(historyItem));
+
+        mockMvc.perform(get("/api/v1/invoices/1/history"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].id").value(10))
+                .andExpect(jsonPath("$[0].status").value("PAID"))
+                .andExpect(jsonPath("$[0].totalAmount").value(1500.00));
+    }
 }

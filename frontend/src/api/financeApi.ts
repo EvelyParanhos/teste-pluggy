@@ -8,6 +8,7 @@ import type {
   Account,
   Item,
   Invoice,
+  InvoiceHistoryItem,
   CategoryBudgetStatus,
   BudgetAlertLog,
   SyncLog,
@@ -58,6 +59,11 @@ export const financeApi = {
   // Invoices
   getInvoices: async (): Promise<Invoice[]> => {
     const res = await apiClient.get('/invoices');
+    return res.data;
+  },
+
+  getInvoiceHistory: async (accountId: number): Promise<InvoiceHistoryItem[]> => {
+    const res = await apiClient.get(`/invoices/${accountId}/history`);
     return res.data;
   },
 
