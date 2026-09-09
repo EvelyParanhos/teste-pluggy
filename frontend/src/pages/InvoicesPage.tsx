@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { CreditCard, Calendar, AlertTriangle, CheckCircle2, ArrowUpRight, ArrowDownLeft, Clock } from 'lucide-react';
 import { financeApi } from '../api/financeApi';
-import type { Invoice, InvoiceHistoryItem, Transaction } from '../types/finance';
+import type { Invoice, Transaction } from '../types/finance';
 
 interface MonthTab {
   key: string;
@@ -19,7 +19,6 @@ interface MonthTab {
 export const InvoicesPage: React.FC = () => {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null);
-  const [historyItems, setHistoryItems] = useState<InvoiceHistoryItem[]>([]);
   const [selectedTabKey, setSelectedTabKey] = useState<string>('current');
   const [loading, setLoading] = useState<boolean>(true);
 
@@ -74,24 +73,13 @@ export const InvoicesPage: React.FC = () => {
 
   useEffect(() => {
     if (selectedAccountId !== null) {
-      loadHistory(selectedAccountId);
       setSelectedTabKey('current');
     }
   }, [selectedAccountId]);
 
-  const loadHistory = async (accId: number) => {
-    try {
-      const history = await financeApi.getInvoiceHistory(accId);
-      setHistoryItems(history);
-    } catch (err) {
-      console.error('Erro ao carregar histórico de faturas:', err);
-      setHistoryItems([]);
-    }
-  };
-
   const currentInvoice = invoices.find(inv => inv.accountId === selectedAccountId);
 
-  // Monta as abas de meses (atual + histórico)
+  // Monta as abas de meses (apenas fatura atual em aberto)
   const monthTabs: MonthTab[] = [];
 
   if (currentInvoice) {
@@ -106,29 +94,6 @@ export const InvoicesPage: React.FC = () => {
       minimumPaymentAmount: currentInvoice.minimumPaymentAmount,
       transactions: currentInvoice.transactions || [],
       futureTransactions: currentInvoice.futureTransactions || [],
-    });
-  }
-
-  if (historyItems && historyItems.length > 0) {
-    historyItems.forEach(item => {
-      // Evita duplicar se a fatura histórica for idêntica à fatura atual
-      const isSameDate = currentInvoice &&
-        ((item.closeDate && item.closeDate === currentInvoice.balanceCloseDate) ||
-         (item.dueDate && item.dueDate === currentInvoice.balanceDueDate));
-
-      if (!isSameDate) {
-        monthTabs.push({
-          key: `hist-${item.id}`,
-          label: getMonthLabel(item.closeDate || item.dueDate, false),
-          isCurrent: false,
-          status: item.status as any,
-          closeDate: item.closeDate,
-          dueDate: item.dueDate,
-          totalAmount: item.totalAmount,
-          minimumPaymentAmount: item.minimumPaymentAmount,
-          transactions: item.transactions || [],
-        });
-      }
     });
   }
 

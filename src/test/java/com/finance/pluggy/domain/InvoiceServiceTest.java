@@ -502,4 +502,67 @@ class InvoiceServiceTest {
         // Vencimento original 07/09/2026 é feriado da Independência, portanto avança para 08/09/2026 (Terça-feira)
         assertThat(response.getBalanceDueDate()).isEqualTo(LocalDate.of(2026, 9, 8));
     }
+
+    @Test
+    @DisplayName("Deve incluir transações do ciclo atual ocorridas antes do pagamento quando este é efetuado no vencimento (meio do novo ciclo)")
+    void shouldIncludeTransactionsOccurringBeforePaymentDateWhenPaymentIsMadeMidCycleOnDueDate() {
+        LocalDate closeDate = LocalDate.of(2026, 9, 28);
+        LocalDate dueDate = LocalDate.of(2026, 10, 5);
+
+        Account creditCard = Account.builder()
+                .id(1L)
+                .name("Cartão Mid-Cycle Test")
+                .number("6058")
+                .type(AccountType.CREDIT)
+                .subtype(AccountSubtype.CREDIT_CARD)
+                .creditLimit(new BigDecimal("5000.00"))
+                .availableCreditLimit(new BigDecimal("4386.55"))
+                .balanceCloseDate(closeDate)
+                .balanceDueDate(dueDate)
+                .build();
+
+        com.finance.pluggy.domain.model.Transaction paymentTx = com.finance.pluggy.domain.model.Transaction.builder()
+                .id(100L)
+                .pluggyTransactionId("tx-pay-mid")
+                .account(creditCard)
+                .pluggyCategory("Credit card payment")
+                .description("Pagamento de fatura")
+                .type(com.finance.pluggy.domain.model.TransactionType.CREDIT)
+                .amount(new BigDecimal("1500.00"))
+                .date(LocalDate.of(2026, 9, 5))
+                .build();
+
+        com.finance.pluggy.domain.model.Transaction tx1 = com.finance.pluggy.domain.model.Transaction.builder()
+                .id(101L)
+                .pluggyTransactionId("tx-current-amazon")
+                .account(creditCard)
+                .description("Amazon BR VI")
+                .type(com.finance.pluggy.domain.model.TransactionType.DEBIT)
+                .amount(new BigDecimal("30.91"))
+                .date(LocalDate.of(2026, 8, 29))
+                .build();
+
+        com.finance.pluggy.domain.model.Transaction tx2 = com.finance.pluggy.domain.model.Transaction.builder()
+                .id(102L)
+                .pluggyTransactionId("tx-current-claro")
+                .account(creditCard)
+                .description("Claro Flex")
+                .type(com.finance.pluggy.domain.model.TransactionType.DEBIT)
+                .amount(new BigDecimal("24.99"))
+                .date(LocalDate.of(2026, 9, 10))
+                .build();
+
+        when(accountRepository.findAll()).thenReturn(List.of(creditCard));
+        when(invoiceRepository.findByAccountIdOrderByDueDateAsc(1L)).thenReturn(Collections.emptyList());
+        when(transactionRepository.findByAccountId(1L)).thenReturn(List.of(paymentTx, tx1, tx2));
+
+        List<InvoiceResponse> invoices = invoiceService.getInvoices();
+
+        assertThat(invoices).hasSize(1);
+        InvoiceResponse response = invoices.get(0);
+
+        assertThat(response.getCurrentBalance()).isEqualByComparingTo("55.90");
+        assertThat(response.getTransactionCount()).isEqualTo(2);
+        assertThat(response.getTransactions()).containsExactlyInAnyOrder(tx1, tx2);
+    }
 }

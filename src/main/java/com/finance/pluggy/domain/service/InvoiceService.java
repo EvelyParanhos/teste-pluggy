@@ -260,8 +260,8 @@ public class InvoiceService {
                             } else if (tx.getType() == TransactionType.CREDIT) {
                                 futureBalance = futureBalance.subtract(txAmount);
                             }
-                        } else if (lastPaymentDate != null && txDate != null && !txDate.isAfter(lastPaymentDate)) {
-                            // Transações ocorridas até a data do último pagamento pertencem ao ciclo anterior
+                        } else if (previousCloseDate != null && txDate != null && !txDate.isAfter(previousCloseDate)) {
+                            // Transações ocorridas até o fechamento do ciclo anterior pertencem ao ciclo anterior
                             continue;
                         } else {
                             // Transações no intervalo após o último pagamento até a data de fechamento
